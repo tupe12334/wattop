@@ -22,7 +22,7 @@ Press `q` or `Esc` to quit.
 
 ## How it works
 
-wattop reads the `AppleSmartBattery` entry from the IORegistry (`ioreg -rn AppleSmartBattery -a`). It uses the `PowerTelemetryData` fields `SystemPowerIn`, `SystemLoad` and `BatteryPower`. It needs no root access. It works only on Apple laptops. Desktop Macs have no battery entry.
+wattop reads live input power (`PDTR`) and system power (`PSTR`) from the SMC every second. It reads the battery state, the charger details and the active port from the IORegistry (`AppleSmartBattery` and the `PortDescription` entries). If an SMC value fails its checks, wattop uses the IORegistry `PowerTelemetryData` value. That value updates only about every 20 s. wattop needs no root access. It works only on Apple laptops, because desktop Macs have no battery entry.
 
 ## License
 
