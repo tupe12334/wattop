@@ -1,4 +1,5 @@
 mod flow;
+mod smc;
 mod telemetry;
 
 use anyhow::Result;
@@ -24,11 +25,17 @@ struct App {
     history: VecDeque<Sample>,
     last: Result<Sample, String>,
     sys: System,
+    /// None when the SMC cannot be opened; ioreg values are used then.
+    smc: Option<smc::Smc>,
 }
 
 impl App {
     fn tick(&mut self) {
-        self.last = telemetry::read().map_err(|e| format!("{e:#}"));
+        let mut read = telemetry::read();
+        if let (Ok(s), Some(smc)) = (&mut read, &self.smc) {
+            telemetry::apply_live_power(s, smc.read_f32("PDTR").ok(), smc.read_f32("PSTR").ok());
+        }
+        self.last = read.map_err(|e| format!("{e:#}"));
         if let Ok(s) = &self.last {
             if self.history.len() == HISTORY {
                 self.history.pop_front();
@@ -40,7 +47,12 @@ impl App {
 }
 
 fn main() -> Result<()> {
-    let mut app = App { history: VecDeque::new(), last: Err("loading".into()), sys: System::new()? };
+    let mut app = App {
+        history: VecDeque::new(),
+        last: Err("loading".into()),
+        sys: System::new()?,
+        smc: smc::Smc::open().ok(),
+    };
     app.tick();
     let mut terminal = ratatui::init();
     let mut next = Instant::now() + TICK;
@@ -72,14 +84,25 @@ fn panel(title: &str) -> Block<'_> {
         .title(Span::styled(format!(" {title} "), Style::new().fg(Color::Cyan).bold()))
 }
 
+/// Row heights for flow, status, chart, procs. Flow shrinks first (to 9 rows),
+/// then the chart keeps at least 6 rows. Procs (0 rows) hide when there is no room.
+fn heights(total: u16) -> [u16; 4] {
+    const STATUS: u16 = 9;
+    const CHART_MIN: u16 = 6;
+    const PROCS_MIN: u16 = 5;
+    let flow = (total * 45 / 100).clamp(9, 12).min(total.saturating_sub(STATUS + CHART_MIN));
+    let below = total.saturating_sub(flow + STATUS);
+    let procs = if below >= CHART_MIN + PROCS_MIN { (below * 2 / 5).max(PROCS_MIN) } else { 0 };
+    [flow, STATUS, below - procs, procs]
+}
+
 fn draw(f: &mut Frame, app: &App, frame: u64) {
-    // Flow panel: ~45% of height, never below 12 rows so the nodes fit.
-    let flow_h = f.area().height.saturating_mul(45).saturating_div(100).max(12);
+    let [flow_h, status_h, chart_h, procs_h] = heights(f.area().height);
     let [top, status, chart, procs] = Layout::vertical([
         Constraint::Length(flow_h),
-        Constraint::Length(9),
-        Constraint::Fill(3),
-        Constraint::Fill(2),
+        Constraint::Length(status_h),
+        Constraint::Length(chart_h),
+        Constraint::Length(procs_h),
     ])
     .areas(f.area());
 
@@ -91,7 +114,9 @@ fn draw(f: &mut Frame, app: &App, frame: u64) {
         Err(e) => f.render_widget(Paragraph::new(e.as_str()).red().block(panel("wattop")), top),
     }
     draw_chart(f, chart, &app.history);
-    draw_procs(f, procs, &app.sys);
+    if procs_h > 0 {
+        draw_procs(f, procs, &app.sys);
+    }
 }
 
 fn level_color(percent: i64) -> Color {
@@ -218,4 +243,17 @@ fn draw_procs(f: &mut Frame, area: Rect, sys: &System) {
             .block(panel("top power users (cpu)")),
         area,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::heights;
+
+    #[test]
+    fn chart_keeps_six_rows_on_small_terminals() {
+        let [flow, status, chart, procs] = heights(28);
+        assert_eq!((flow, status, chart, procs), (12, 9, 7, 0));
+        assert!(heights(24)[2] >= 6);
+        assert_eq!(heights(60).iter().sum::<u16>(), 60);
+    }
 }

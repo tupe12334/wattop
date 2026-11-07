@@ -68,7 +68,7 @@ pub fn parse(bytes: &[u8]) -> Result<Sample> {
         temp_c: int(dict, "Temperature") as f64 / 100.0,
         // ponytail: 65535 is macOS's "still calculating" marker.
         minutes_left: (minutes > 0 && minutes < 65535).then_some(minutes),
-        charger_name: adapter.and_then(|a| a.get("Name")).and_then(Value::as_string).map(str::to_owned),
+        charger_name: adapter.and_then(adapter_name),
         charger_volts: adapter.map_or(0.0, |a| int(a, "AdapterVoltage") as f64 / 1000.0),
         charger_amps: adapter.map_or(0.0, |a| int(a, "Current") as f64 / 1000.0),
         power_sources: dict
@@ -77,6 +77,32 @@ pub fn parse(bytes: &[u8]) -> Result<Sample> {
             .map_or(0, Vec::len),
         power_ports: Vec::new(),
     })
+}
+
+/// Replaces ioreg watts with live SMC values, all or nothing.
+/// Battery net becomes input - load, because ioreg's BatteryPower lags too.
+/// Keeps the ioreg values when either SMC value fails the checks.
+pub fn apply_live_power(s: &mut Sample, input: Option<f32>, load: Option<f32>) {
+    let valid = |v: Option<f32>| v.map(f64::from).filter(|v| v.is_finite() && *v >= 0.0);
+    let (Some(i), Some(l)) = (valid(input), valid(load)) else {
+        return;
+    };
+    // A plugged-in, rated charger cannot deliver 0 W. Treat that read as bad.
+    if s.plugged_in && s.adapter_watts > 0 && i == 0.0 {
+        return;
+    }
+    s.input_w = i;
+    s.load_w = l;
+    s.battery_w = i - l;
+}
+
+/// Best adapter label: Name, Manufacturer, Description, else the rating.
+fn adapter_name(a: &Dictionary) -> Option<String> {
+    ["Name", "Manufacturer", "Description"]
+        .iter()
+        .find_map(|k| a.get(k).and_then(Value::as_string).filter(|s| !s.is_empty()))
+        .map(str::to_owned)
+        .or_else(|| (int(a, "Watts") > 0).then(|| format!("{} W USB-C charger", int(a, "Watts"))))
 }
 
 /// Lists active power-capable ports from the IORegistry.
@@ -173,6 +199,17 @@ mod tests {
         assert!((s.charger_volts - 9.0).abs() < 1e-9);
         assert!((s.charger_amps - 2.22).abs() < 1e-9);
         assert_eq!(s.power_sources, 2);
+    }
+
+    #[test]
+    fn live_power_needs_a_valid_pair() {
+        let mut s = Sample { plugged_in: true, adapter_watts: 60, input_w: 1.0, load_w: 2.0, battery_w: -1.0, ..Default::default() };
+        apply_live_power(&mut s, Some(58.5), Some(-30.7)); // negative load: rejected
+        assert_eq!(s.load_w, 2.0);
+        apply_live_power(&mut s, Some(0.0), Some(35.0)); // 0 W on a 60 W charger: rejected
+        assert_eq!(s.input_w, 1.0);
+        apply_live_power(&mut s, Some(58.5), Some(35.0));
+        assert_eq!((s.input_w, s.load_w, s.battery_w), (58.5, 35.0, 23.5));
     }
 
     #[test]
