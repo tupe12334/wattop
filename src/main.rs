@@ -139,12 +139,15 @@ fn level_color(percent: i64) -> Color {
     }
 }
 
-fn cell_span(kind: battery::CellKind, color: Color) -> Span<'static> {
+fn segment_span(kind: battery::CellKind, color: Color) -> Span<'static> {
     match kind {
-        battery::CellKind::Filled => Span::styled("█", Style::new().fg(color)),
-        battery::CellKind::Empty => Span::styled("░", Style::new().fg(Color::DarkGray)),
-        battery::CellKind::ChargePulse => Span::styled("▓", Style::new().fg(Color::Green)),
-        battery::CellKind::DrainPulse => Span::styled("▓", Style::new().fg(flow::ORANGE)),
+        battery::CellKind::Filled => Span::styled("▰", Style::new().fg(color)),
+        battery::CellKind::Empty => Span::styled("▱", Style::new().fg(Color::DarkGray)),
+        battery::CellKind::ChargePulse => {
+            Span::styled("▰", Style::new().fg(Color::LightGreen).bold())
+        }
+        battery::CellKind::ChargeTrail => Span::styled("▰", Style::new().fg(Color::Rgb(0, 110, 0))),
+        battery::CellKind::DrainPulse => Span::styled("▰", Style::new().fg(flow::ORANGE).bold()),
     }
 }
 
@@ -170,22 +173,18 @@ fn draw_status(
     } else {
         (battery::Motion::Draining, "DISCHARGING", Color::Red)
     };
-    // Battery body: cells + 2 borders + 1 nub column, sized to the panel's inner width.
+    // Segment row: segments + 1 nub column, sized to the panel's inner width.
     let block = panel("battery");
     let inner = block.inner(cell);
-    let cells = battery::body_cells(inner.width as usize);
-    let border = Style::new().fg(Color::DarkGray);
-    let mut body = vec![Span::styled("│", border)];
-    body.extend(
-        battery::battery_cells(cells, percent, motion, frame)
-            .into_iter()
-            .map(|k| cell_span(k, color)),
-    );
-    body.push(Span::styled("│▌", border));
+    let segments = battery::segment_count(inner.width as usize);
+    let nub = Span::styled("▌", Style::new().fg(Color::DarkGray));
+    let mut row: Vec<Span> = battery::battery_cells(segments, percent, motion, frame)
+        .into_iter()
+        .map(|k| segment_span(k, color))
+        .collect();
+    row.push(nub);
     let cell_lines = vec![
-        Line::from(Span::styled(format!("┌{}┐", "─".repeat(cells)), border)),
-        Line::from(body),
-        Line::from(Span::styled(format!("└{}┘", "─".repeat(cells)), border)),
+        Line::from(row),
         Line::from(Span::styled(
             format!("{percent}%"),
             Style::new().fg(color).bold(),
