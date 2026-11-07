@@ -90,7 +90,7 @@ fn panel(title: &str) -> Block<'_> {
 /// else two text lines. Then the chart keeps at least 8 rows. Procs (0 rows) hide when there is no room.
 fn heights(total: u16) -> [u16; 4] {
     const COMPACT_FLOW: u16 = 4; // two text lines, borders included
-    const STATUS: u16 = 9;
+    const STATUS: u16 = 10;
     const CHART_MIN: u16 = 8;
     const PROCS_MIN: u16 = 5;
     let room = total.saturating_sub(STATUS + CHART_MIN);
@@ -230,6 +230,11 @@ fn draw_status(
             s.charger_name.as_deref().unwrap_or("unknown adapter")
         )
     };
+    let low_power = match s.low_power {
+        Some(true) => Span::styled("◐ On", Style::new().fg(Color::Yellow).bold()),
+        Some(false) => Span::styled("Off", Style::new().fg(Color::DarkGray)),
+        None => Span::styled("—", Style::new().fg(Color::DarkGray)),
+    };
     let lines = vec![
         kv("Input", format!("{:.1} W", s.input_w), Color::Green),
         kv("Load", format!("{:.1} W", s.load_w), Color::Yellow),
@@ -238,6 +243,13 @@ fn draw_status(
         kv("Charger rating", rating, Color::White),
         kv("Temperature", format!("{:.1} °C", s.temp_c), Color::White),
         kv("ETA", eta, Color::White),
+        Line::from(vec![
+            Span::styled(
+                format!("{:<15}", "Low Power"),
+                Style::new().fg(Color::DarkGray),
+            ),
+            low_power,
+        ]),
     ];
 
     let verdict = if s.plugged_in && s.input_w < s.load_w {
@@ -407,7 +419,8 @@ mod tests {
 
     #[test]
     fn flow_takes_bus_rows_when_room_else_two_lines() {
-        assert_eq!(heights(29), [12, 9, 8, 0]);
+        assert_eq!(heights(30), [12, 10, 8, 0]);
+        assert_eq!(heights(29)[0], 4);
         assert_eq!(heights(28)[0], 4);
         assert!(heights(24)[2] >= 8);
         assert_eq!(heights(60)[0], 12);

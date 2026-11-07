@@ -31,6 +31,8 @@ pub struct Sample {
     pub power_sources: usize,
     /// Active power-capable ports, e.g. "USB-C port 2", "MagSafe".
     pub power_ports: Vec<String>,
+    /// macOS Low Power Mode on the current power source, None when unknown.
+    pub low_power: Option<bool>,
 }
 
 pub fn read() -> Result<Sample> {
@@ -42,6 +44,24 @@ pub fn read() -> Result<Sample> {
     // Port lookup is best effort: a failure only hides the port name.
     s.power_ports = read_ports().unwrap_or_default();
     Ok(s)
+}
+
+/// Reads Low Power Mode from `pmset -g`. None when pmset fails or prints no such line.
+pub fn read_low_power() -> Option<bool> {
+    let out = Command::new("pmset").arg("-g").output().ok()?;
+    parse_low_power(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Parses the `lowpowermode` line of `pmset -g` output. 1 is on, 0 is off.
+// ponytail: pmset runs every tick (1 s). It is cheap, so no cache.
+pub fn parse_low_power(text: &str) -> Option<bool> {
+    text.lines().find_map(
+        |line| match line.split_whitespace().collect::<Vec<_>>()[..] {
+            ["lowpowermode", "1"] => Some(true),
+            ["lowpowermode", "0"] => Some(false),
+            _ => None,
+        },
+    )
 }
 
 pub fn parse(bytes: &[u8]) -> Result<Sample> {
@@ -78,6 +98,7 @@ pub fn parse(bytes: &[u8]) -> Result<Sample> {
             .and_then(Value::as_array)
             .map_or(0, Vec::len),
         power_ports: Vec::new(),
+        low_power: None,
     })
 }
 
@@ -226,6 +247,17 @@ mod tests {
         assert_eq!(s.input_w, 1.0);
         apply_live_power(&mut s, Some(58.5), Some(35.0));
         assert_eq!((s.input_w, s.load_w, s.battery_w), (58.5, 35.0, 23.5));
+    }
+
+    const PMSET_LPM_ON: &str = "System-wide power settings:\nCurrently in use:\n standby              1\n disksleep            10\n hibernatemode        3\n lowpowermode         1\n womp                 1\n";
+    const PMSET_LPM_OFF: &str = "System-wide power settings:\nCurrently in use:\n standby              1\n disksleep            10\n hibernatemode        3\n lowpowermode         0\n womp                 1\n";
+    const PMSET_NO_LPM: &str = "System-wide power settings:\nCurrently in use:\n standby              1\n disksleep            10\n womp                 1\n";
+
+    #[test]
+    fn parses_low_power_from_pmset() {
+        assert_eq!(parse_low_power(PMSET_LPM_ON), Some(true));
+        assert_eq!(parse_low_power(PMSET_LPM_OFF), Some(false));
+        assert_eq!(parse_low_power(PMSET_NO_LPM), None);
     }
 
     #[test]

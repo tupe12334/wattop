@@ -28,13 +28,14 @@ enum Stat {
     Charger,
     Temp,
     TimeLeft,
+    LowPower,
 }
 
 type Selection = BTreeSet<Stat>;
 
 impl Stat {
     /// Menu order and title order.
-    const ALL: [Stat; 7] = [
+    const ALL: [Stat; 8] = [
         Stat::Input,
         Stat::Load,
         Stat::BatteryNet,
@@ -42,6 +43,7 @@ impl Stat {
         Stat::Charger,
         Stat::Temp,
         Stat::TimeLeft,
+        Stat::LowPower,
     ];
 
     fn label(self) -> &'static str {
@@ -53,6 +55,7 @@ impl Stat {
             Stat::Charger => "Charger port",
             Stat::Temp => "Temperature",
             Stat::TimeLeft => "Time left",
+            Stat::LowPower => "Low Power",
         }
     }
 
@@ -72,26 +75,29 @@ impl Stat {
             Stat::TimeLeft => s
                 .minutes_left
                 .map_or("--:--".into(), |m| format!("{}:{:02}", m / 60, m % 60)),
+            // Empty when off, so the title shows nothing for this stat.
+            Stat::LowPower if s.low_power == Some(true) => "LPM".into(),
+            Stat::LowPower => String::new(),
         }
     }
 }
 
 /// Menu-bar title: the selected stats in menu order, two spaces apart.
 fn title(s: &Sample, sel: &Selection) -> String {
-    let parts: Vec<String> = Stat::ALL
+    if sel.is_empty() {
+        return "⚡".into();
+    }
+    Stat::ALL
         .iter()
         .filter(|st| sel.contains(st))
         .map(|st| st.glyph(s))
-        .collect();
-    if parts.is_empty() {
-        "⚡".into()
-    } else {
-        parts.join("  ")
-    }
+        .filter(|g| !g.is_empty())
+        .collect::<Vec<_>>()
+        .join("  ")
 }
 
-/// The four disabled readout lines at the top of the menu.
-fn info_lines(r: &Result<Sample, String>) -> [String; 4] {
+/// The five disabled readout lines at the top of the menu.
+fn info_lines(r: &Result<Sample, String>) -> [String; 5] {
     let s = match r {
         Ok(s) => s,
         Err(e) => {
@@ -100,8 +106,14 @@ fn info_lines(r: &Result<Sample, String>) -> [String; 4] {
                 String::new(),
                 String::new(),
                 String::new(),
+                String::new(),
             ];
         }
+    };
+    let low_power = match s.low_power {
+        Some(true) => "On",
+        Some(false) => "Off",
+        None => "—",
     };
     let word = if s.battery_w > 0.0 {
         "charging"
@@ -125,6 +137,7 @@ fn info_lines(r: &Result<Sample, String>) -> [String; 4] {
         format!("Battery {}% {word} {:+.1} W", s.percent, s.battery_w),
         source,
         format!("Temp {:.1} °C · ETA {eta}", s.temp_c),
+        format!("Low Power Mode: {low_power}"),
     ]
 }
 
@@ -242,7 +255,7 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     let handle = app.handle().clone();
     let sel = load_selection(&handle);
 
-    let info = (0..4)
+    let info = (0..5)
         .map(|i| MenuItem::with_id(app, format!("info{i}"), "Loading…", false, None::<&str>))
         .collect::<tauri::Result<Vec<_>>>()?;
     let checks = Stat::ALL
@@ -400,5 +413,20 @@ mod tests {
     #[test]
     fn title_nothing_selected() {
         assert_eq!(title(&sample(), &Selection::new()), "⚡");
+    }
+
+    #[test]
+    fn title_low_power_shows_lpm_only_when_on() {
+        let off = sample();
+        assert_eq!(title(&off, &sel(&[Stat::LowPower])), "");
+        let on = Sample {
+            low_power: Some(true),
+            ..sample()
+        };
+        assert_eq!(title(&on, &sel(&[Stat::LowPower])), "LPM");
+        assert_eq!(
+            title(&on, &sel(&[Stat::Input, Stat::LowPower])),
+            "⚡58W  LPM"
+        );
     }
 }

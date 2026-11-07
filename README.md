@@ -7,6 +7,7 @@ It shows where your watts go: from the charger, into the system and in or out of
 - **Energy flow:** animated flow between CHARGER, SYSTEM and BATTERY.
 - **Battery cell:** the charge level and the state: CHARGING, HOLDING or DISCHARGING.
 - **Readouts:** input, load, net battery watts, charger rating, temperature and time left.
+- **Low Power Mode:** shows whether macOS Low Power Mode is on, in the dashboard and the menu bar.
 - **Warning:** shows when the charger is too weak for the load.
 - **History:** a 5-minute graph of input, load and battery watts.
 - **Top power users:** the processes that use the most CPU.
