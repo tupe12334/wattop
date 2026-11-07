@@ -153,11 +153,11 @@ Use this path to build both parts from a clone.
 
 You should see `target/release/bundle/macos/Wattop.app` after step 4.
 
-The app is unsigned. Use [First launch](#first-launch-of-the-unsigned-app) before you open it.
+The app is not notarized. Use [First launch](#first-launch-of-the-unsigned-app) before you open it.
 
 ## First launch of the unsigned app
 
-The app is not signed or notarized. macOS blocks it on first launch.
+The app is ad-hoc signed, not signed with a Developer ID, and not notarized. macOS blocks it on first launch with "Apple could not verify" or "can't be verified". This is not a damaged app. A Developer ID certificate and notarization would remove this warning. They need a paid Apple Developer account.
 
 **If you used `wattop install-app`:** the command removes the quarantine flag. You do not need these steps.
 
@@ -169,7 +169,7 @@ The app is not signed or notarized. macOS blocks it on first launch.
 
 2. Try to open the app. Then open **System Settings**, go to **Privacy & Security**, and click **Open Anyway** for Wattop.
 
-If macOS says the app is damaged, remove the quarantine flag:
+If macOS says the app is damaged, or you want to skip the dialogs, remove the quarantine flag:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Wattop.app

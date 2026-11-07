@@ -15,8 +15,8 @@ flowchart TD
     D --> F["app-bundle job<br/>macOS runner"]
     E --> G["Short-lived token from crates.io Trusted Publishing"]
     G --> H["cargo publish -p wattop"]
-    F --> I["cargo tauri build --bundles app,dmg"]
-    I --> J["Zip and dmg uploaded to the GitHub release (unsigned)"]
+    F --> I["cargo tauri build --bundles app"]
+    I --> J["Verify signature, then zip and dmgbuild dmg uploaded to the GitHub release"]
 ```
 
 The two jobs after release-please run in parallel. A failed crate publish does not stop the app upload.
@@ -44,7 +44,7 @@ The crates.io crate settings must match the workflow. Set the repository to `tup
 
 ## App bundle
 
-The app job builds an unsigned, not notarized app with `cargo tauri build --bundles app,dmg`. It renames the output to `Wattop-<tag>-aarch64.app.zip` and `Wattop-<tag>-aarch64.dmg`. It uploads both to the release with `gh release upload`.
+The app job builds the app with `cargo tauri build --bundles app`. Tauri ad-hoc signs it (`signingIdentity: "-"`), and a `codesign --verify` step checks the seal. It zips the app, and builds the .dmg with [dmgbuild](https://dmgbuild.readthedocs.io) from [app/dmg/settings.py](../app/dmg/settings.py). The layout and background come from [app/dmg/background.tiff](../app/dmg/background.tiff), made by [app/dmg/make_background.py](../app/dmg/make_background.py). It names the files `Wattop-<tag>-aarch64.app.zip` and `Wattop-<tag>-aarch64.dmg`, and uploads both to the release with `gh release upload`.
 
 Users must allow unsigned apps on their Mac. The release does not carry a signature.
 
