@@ -27,7 +27,7 @@ The release has two files for each version. The `.dmg` is for drag-and-drop inst
 1. Open the [Releases page](https://github.com/tupe12334/wattop/releases). Pick the latest `wattop-v...` release.
 2. Download `Wattop-wattop-v<version>-aarch64.dmg`.
 3. Open the `.dmg`. Drag **Wattop** onto **Applications**.
-4. Start the app. See [First launch](#first-launch-of-the-unsigned-app).
+4. Start the app. See [First launch](#first-launch).
 5. Link the command-line tool. See [Get the CLI after a .dmg install](#get-the-cli-after-a-dmg-install).
 
 You should see:
@@ -153,15 +153,17 @@ Use this path to build both parts from a clone.
 
 You should see `target/release/bundle/macos/Wattop.app` after step 4.
 
-The app is not notarized. Use [First launch](#first-launch-of-the-unsigned-app) before you open it.
+The app is not notarized. Use [First launch](#first-launch) before you open it.
 
-## First launch of the unsigned app
+## First launch
 
-The app is ad-hoc signed, not signed with a Developer ID, and not notarized. macOS blocks it on first launch with "Apple could not verify" or "can't be verified". This is not a damaged app. A Developer ID certificate and notarization would remove this warning. They need a paid Apple Developer account.
+Notarized releases open with no warning. Their .dmg and app are signed with a Developer ID certificate and notarized by Apple.
+
+Older releases, and unsigned builds, are ad-hoc signed. macOS blocks them on first launch with "Apple could not verify" or "can't be verified". This is not a damaged app. Use the steps below for those builds.
 
 **If you used `wattop install-app`:** the command removes the quarantine flag. You do not need these steps.
 
-**If you used the .dmg or the .zip:** use one of these steps.
+**If you used the .dmg or the .zip of an older or unsigned build:** use one of these steps.
 
 1. Right-click `Wattop.app` in `/Applications`. Choose **Open**. Click **Open** in the dialog.
 

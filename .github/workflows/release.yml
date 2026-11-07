@@ -49,10 +49,11 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
   app-bundle:
-    name: Build unsigned macOS app
+    name: Build macOS app
     needs: release-please
     if: needs.release-please.outputs.release_created
     runs-on: macos-latest
+    environment: release
     permissions:
       contents: write
     env:
@@ -69,18 +70,139 @@ jobs:
           cargo build --release -p wattop
           mkdir -p app/binaries
           cp target/release/wattop app/binaries/wattop-aarch64-apple-darwin
-      - name: Build app (ad-hoc signed, not notarized)
+
+      # Signing is on only when all six secrets exist. Partial sets fail the job.
+      # Without secrets, the build stays ad-hoc signed (signingIdentity "-").
+      - name: Check for signing secrets
+        id: signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          present=0
+          missing=""
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+            APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8; do
+            if [ -n "${!name}" ]; then
+              present=$((present + 1))
+            else
+              missing="$missing $name"
+            fi
+          done
+          if [ "$present" -eq 0 ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "No signing secrets. Building ad-hoc signed app."
+          elif [ -z "$missing" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Signing secrets found. Building Developer ID app."
+          else
+            echo "Missing signing secrets:$missing" >&2
+            exit 1
+          fi
+
+      # Tauri reads the APPLE_* variables from the environment. Export them only
+      # when signing is on. An empty variable would also switch Tauri on.
+      - name: Export signing settings
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+          {
+            printf 'APPLE_CERTIFICATE=%s\n' "$APPLE_CERTIFICATE"
+            printf 'APPLE_CERTIFICATE_PASSWORD=%s\n' "$APPLE_CERTIFICATE_PASSWORD"
+            printf 'APPLE_SIGNING_IDENTITY=%s\n' "$APPLE_SIGNING_IDENTITY"
+            printf 'APPLE_API_ISSUER=%s\n' "$APPLE_API_ISSUER"
+            printf 'APPLE_API_KEY=%s\n' "$APPLE_API_KEY"
+            printf 'APPLE_API_KEY_PATH=%s\n' "$RUNNER_TEMP/AuthKey.p8"
+          } >> "$GITHUB_ENV"
+
+      # Tauri imports the certificate into its own temp keychain, signs the app and
+      # sidecar with hardened runtime, notarizes the app and staples it.
+      - name: Build app
         working-directory: app
         run: cargo tauri build --bundles app
+
       - name: Verify the app signature
         run: codesign --verify --deep --strict --verbose=2 target/release/bundle/macos/Wattop.app
+
+      - name: Verify notarization and stapling of the app
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          APP=target/release/bundle/macos/Wattop.app
+          info=$(codesign -dvv "$APP" 2>&1)
+          grep -q '^Timestamp=' <<<"$info"
+          xcrun stapler validate "$APP"
+          out=$(spctl -a -vv -t exec "$APP" 2>&1)
+          echo "$out"
+          grep -q 'accepted' <<<"$out"
+          grep -q 'source=Notarized Developer ID' <<<"$out"
+
       - name: Install dmgbuild
         run: |
           python3 -m venv "$RUNNER_TEMP/dmgvenv"
           "$RUNNER_TEMP/dmgvenv/bin/pip" install dmgbuild==1.6.5
-      - name: Package and upload to GitHub release (unsigned)
+
+      - name: Package the app zip and the DMG
         run: |
           APP=$(ls -d target/release/bundle/macos/*.app)
           ditto -c -k --keepParent "$APP" "Wattop-$TAG-aarch64.app.zip"
           "$RUNNER_TEMP/dmgvenv/bin/python" app/dmg/build_dmg.py -s app/dmg/settings.py -D app="$APP" "Wattop" "Wattop-$TAG-aarch64.dmg"
-          gh release upload "$TAG" "Wattop-$TAG-aarch64.app.zip" "Wattop-$TAG-aarch64.dmg" --clobber
+
+      # Tauri deletes its temp keychain after the app build. The DMG needs its own.
+      - name: Import Developer ID certificate for the DMG
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/dmg-signing.keychain-db"
+          KC_PASS=$(openssl rand -hex 24)
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -f pkcs12
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC" > /dev/null
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "DMG_KEYCHAIN=$KC" >> "$GITHUB_ENV"
+
+      - name: Sign, notarize and staple the DMG
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          DMG="Wattop-$TAG-aarch64.dmg"
+          codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp --keychain "$DMG_KEYCHAIN" "$DMG"
+          xcrun notarytool submit "$DMG" --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+          xcrun stapler staple "$DMG"
+
+      - name: Verify notarization and stapling of the DMG
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          DMG="Wattop-$TAG-aarch64.dmg"
+          xcrun stapler validate "$DMG"
+          out=$(spctl -a -vv -t open --context context:primary-signature "$DMG" 2>&1)
+          echo "$out"
+          grep -q 'accepted' <<<"$out"
+          grep -q 'source=Notarized Developer ID' <<<"$out"
+
+      - name: Upload to GitHub release
+        run: gh release upload "$TAG" "Wattop-$TAG-aarch64.app.zip" "Wattop-$TAG-aarch64.dmg" --clobber
+
+      - name: Remove signing material
+        if: always() && steps.signing.outputs.enabled == 'true'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/dmg-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/cert.p12"
