@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/tupe12334/wattop/compare/wattop-v0.2.0...wattop-v0.3.0) (2026-11-07)
+
+
+### Features
+
+* battery bar as ▰▱ segments with forward/backward pulse ([d8cecd0](https://github.com/tupe12334/wattop/commit/d8cecd03e97a2ff00dfd89fbd158e72bd4704ff6))
+* every install path gets the menu-bar app ([b18c325](https://github.com/tupe12334/wattop/commit/b18c32554ddcce249ba76d1c33cb86876aee921f))
+
+
+### Documentation
+
+* install guide, how it works, menu-bar app, releasing, contributing ([d139546](https://github.com/tupe12334/wattop/commit/d139546d2d7a2d229c14594bb0778f9f7646e39d))
+
 ## [0.2.0](https://github.com/tupe12334/wattop/compare/wattop-v0.1.1...wattop-v0.2.0) (2026-11-07)
 
 
