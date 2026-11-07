@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Tray-only app: no windows, core defaults only.",
+  "windows": [],
+  "permissions": ["core:default"]
+}

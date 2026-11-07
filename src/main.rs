@@ -1,6 +1,5 @@
 mod flow;
-mod smc;
-mod telemetry;
+mod silhouette;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode};
@@ -15,7 +14,7 @@ use ratatui::{
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use sysinfo::{ProcessesToUpdate, System};
-use telemetry::Sample;
+use wattop::{smc, telemetry::Sample};
 
 const HISTORY: usize = 300; // 5 minutes at 1 Hz
 const TICK: Duration = Duration::from_secs(1); // data refresh
@@ -27,15 +26,13 @@ struct App {
     sys: System,
     /// None when the SMC cannot be opened; ioreg values are used then.
     smc: Option<smc::Smc>,
+    /// Port positions for this Mac model, None when unverified.
+    ports: Option<&'static [silhouette::PortPos]>,
 }
 
 impl App {
     fn tick(&mut self) {
-        let mut read = telemetry::read();
-        if let (Ok(s), Some(smc)) = (&mut read, &self.smc) {
-            telemetry::apply_live_power(s, smc.read_f32("PDTR").ok(), smc.read_f32("PSTR").ok());
-        }
-        self.last = read.map_err(|e| format!("{e:#}"));
+        self.last = wattop::sample(self.smc.as_ref()).map_err(|e| format!("{e:#}"));
         if let Ok(s) = &self.last {
             if self.history.len() == HISTORY {
                 self.history.pop_front();
@@ -52,6 +49,7 @@ fn main() -> Result<()> {
         last: Err("loading".into()),
         sys: System::new()?,
         smc: smc::Smc::open().ok(),
+        ports: silhouette::layout(&silhouette::model()),
     };
     app.tick();
     let mut terminal = ratatui::init();
@@ -88,7 +86,7 @@ fn panel(title: &str) -> Block<'_> {
 /// then the chart keeps at least 6 rows. Procs (0 rows) hide when there is no room.
 fn heights(total: u16) -> [u16; 4] {
     const STATUS: u16 = 9;
-    const CHART_MIN: u16 = 6;
+    const CHART_MIN: u16 = 8;
     const PROCS_MIN: u16 = 5;
     let flow = (total * 45 / 100).clamp(9, 12).min(total.saturating_sub(STATUS + CHART_MIN));
     let below = total.saturating_sub(flow + STATUS);
@@ -109,7 +107,7 @@ fn draw(f: &mut Frame, app: &App, frame: u64) {
     match &app.last {
         Ok(s) => {
             flow::draw(f, top, s, frame);
-            draw_status(f, status, s);
+            draw_status(f, status, s, app.ports);
         }
         Err(e) => f.render_widget(Paragraph::new(e.as_str()).red().block(panel("wattop")), top),
     }
@@ -127,8 +125,10 @@ fn level_color(percent: i64) -> Color {
     }
 }
 
-fn draw_status(f: &mut Frame, area: Rect, s: &Sample) {
-    let [cell, readouts] = Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).areas(area);
+fn draw_status(f: &mut Frame, area: Rect, s: &Sample, ports: Option<&'static [silhouette::PortPos]>) {
+    let [ports_area, rest] = Layout::horizontal([Constraint::Length(38), Constraint::Min(0)]).areas(area);
+    silhouette::draw(f, ports_area, s, ports);
+    let [cell, readouts] = Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).areas(rest);
 
     let percent = s.percent.clamp(0, 100);
     let color = level_color(percent);
@@ -208,17 +208,32 @@ fn draw_chart(f: &mut Frame, area: Rect, h: &VecDeque<Sample>) {
         datasets.push(Dataset::default().name("0 W").marker(Marker::Braille).graph_type(GraphType::Line).fg(Color::DarkGray).data(&zero));
     }
     datasets.extend([
-        Dataset::default().name("in").marker(Marker::Braille).graph_type(GraphType::Line).fg(Color::Green).data(&input),
-        Dataset::default().name("load").marker(Marker::Braille).graph_type(GraphType::Line).fg(Color::Yellow).data(&load),
-        Dataset::default().name("battery").marker(Marker::Braille).graph_type(GraphType::Line).fg(Color::Magenta).data(&batt),
+        Dataset::default().name("in").marker(Marker::Braille).graph_type(GraphType::Line).style(Style::new().fg(Color::LightGreen).bold()).data(&input),
+        Dataset::default().name("load").marker(Marker::Braille).graph_type(GraphType::Line).style(Style::new().fg(Color::LightYellow).bold()).data(&load),
+        Dataset::default().name("battery").marker(Marker::Braille).graph_type(GraphType::Line).style(Style::new().fg(Color::LightMagenta).bold()).data(&batt),
     ]);
 
     let label = |v: f64| Span::styled(format!("{v:.0}W"), Style::new().fg(Color::DarkGray));
-    let span_s = h.len().max(2) - 1;
+    // Colour key in the title: always visible, unlike the ratatui legend.
+    let key = |c: Color, text: String| Span::styled(format!("━━ {text}  "), Style::new().fg(c).bold());
+    let mut title = vec![Span::raw(" ")];
+    if let Some(s) = h.back() {
+        title.extend([
+            key(Color::LightGreen, format!("Input {:.1} W", s.input_w)),
+            key(Color::LightYellow, format!("Load {:.1} W", s.load_w)),
+            key(Color::LightMagenta, format!("Battery {}", flow::signed_w(s.battery_w))),
+        ]);
+    }
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(Color::DarkGray))
+        .title(Line::from(title))
+        .title_bottom(Span::styled(" q to quit ", Style::new().fg(Color::DarkGray)));
     f.render_widget(
         Chart::new(datasets)
-            .block(panel(&format!("watts · last {span_s}s · q to quit")))
-            .x_axis(Axis::default().bounds([0.0, (HISTORY - 1) as f64]))
+            .legend_position(None)
+            .block(block)
+            .x_axis(Axis::default().bounds([0.0, (HISTORY - 1) as f64]).labels(vec![Line::from("-5m"), Line::from("-2m30s"), Line::from("now")]))
             .y_axis(Axis::default().bounds([lo, hi]).labels(vec![label(lo), label((lo + hi) / 2.0), label(hi)])),
         area,
     );
@@ -252,8 +267,8 @@ mod tests {
     #[test]
     fn chart_keeps_six_rows_on_small_terminals() {
         let [flow, status, chart, procs] = heights(28);
-        assert_eq!((flow, status, chart, procs), (12, 9, 7, 0));
-        assert!(heights(24)[2] >= 6);
+        assert_eq!((flow, status, chart, procs), (11, 9, 8, 0));
+        assert!(heights(24)[2] >= 8);
         assert_eq!(heights(60).iter().sum::<u16>(), 60);
     }
 }

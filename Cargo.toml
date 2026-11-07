@@ -3,6 +3,10 @@ name = "wattop"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["app"]
+resolver = "3"
+
 [dependencies]
 anyhow = "1.0.104"
 crossterm = "0.29.0"

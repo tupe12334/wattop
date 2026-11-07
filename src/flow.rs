@@ -1,6 +1,7 @@
 //! Energy flow panel: charger, system and battery nodes joined by animated lines.
 
-use crate::{panel, telemetry::Sample};
+use crate::panel;
+use wattop::telemetry::Sample;
 use ratatui::{
     Frame,
     buffer::Buffer,
@@ -207,12 +208,19 @@ fn route(buf: &mut Buffer, inner: Rect, points: &[(i32, i32)], live: Option<Colo
 }
 
 /// Writes one symbol at a cell relative to `inner`, skipping cells outside it.
-fn put(buf: &mut Buffer, inner: Rect, x: i32, y: i32, sym: &str, style: Style) {
+pub fn put(buf: &mut Buffer, inner: Rect, x: i32, y: i32, sym: &str, style: Style) {
     if x < 0 || y < 0 || x >= inner.width as i32 || y >= inner.height as i32 {
         return;
     }
     if let Some(cell) = buf.cell_mut((inner.x + x as u16, inner.y + y as u16)) {
         cell.set_symbol(sym).set_style(style);
+    }
+}
+
+/// Writes text one cell per char, starting at a cell relative to `inner`.
+pub fn put_str(buf: &mut Buffer, inner: Rect, x: i32, y: i32, text: &str, style: Style) {
+    for (i, ch) in text.chars().enumerate() {
+        put(buf, inner, x + i as i32, y, &ch.to_string(), style);
     }
 }
 
