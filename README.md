@@ -14,7 +14,7 @@ It shows where your watts go: from the charger, into the system and in or out of
 ## Install
 
 ```sh
-cargo install --git https://github.com/tupe12334/wattop
+cargo install wattop
 wattop
 ```
 
