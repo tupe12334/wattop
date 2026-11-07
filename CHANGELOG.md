@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.2](https://github.com/tupe12334/wattop/compare/wattop-v0.3.1...wattop-v0.3.2) (2026-11-07)
+
+
+### Bug Fixes
+
+* dmg background shows in Finder, light readable design ([e60b643](https://github.com/tupe12334/wattop/commit/e60b6431dbfc443578b6f9955f393282622abe05))
+
+
+### Documentation
+
+* Mac App Store readiness checklist and sandbox spike results ([6ed237f](https://github.com/tupe12334/wattop/commit/6ed237f4be3c326602b467b1c76f53d2e5749b11))
+
 ## [0.3.1](https://github.com/tupe12334/wattop/compare/wattop-v0.3.0...wattop-v0.3.1) (2026-11-07)
 
 
