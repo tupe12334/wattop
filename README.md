@@ -14,29 +14,39 @@ It shows where your watts go: from the charger, into the system and in or out of
 
 ## Install
 
-```sh
-cargo install wattop
-wattop
-```
+- Download the `.dmg` from [Releases](https://github.com/tupe12334/wattop/releases/latest) and drag Wattop to Applications.
+- `cargo install wattop && wattop install-app`
+- `cargo install --git https://github.com/tupe12334/wattop wattop && wattop install-app`
 
-Press `q` or `Esc` to quit.
+Full guide, first launch of the unsigned app, updating and uninstalling: [docs/install.md](docs/install.md).
+
+## Usage
+
+Run `wattop`. Press `q` or `Esc` to quit.
+
+## Limits
+
+The port outline draws only for Mac16,1. The menu-bar app builds for Apple Silicon only.
 
 ## How it works
 
-wattop reads live input power (`PDTR`) and system power (`PSTR`) from the SMC every second. It reads the battery state, the charger details and the active port from the IORegistry (`AppleSmartBattery` and the `PortDescription` entries). If an SMC value fails its checks, wattop uses the IORegistry `PowerTelemetryData` value. That value updates only about every 20 s. wattop needs no root access. It works only on Apple laptops, because desktop Macs have no battery entry.
+wattop reads power from the SMC and the IORegistry once per second. It needs no root access. It works only on Apple laptops.
+
+See [docs/how-it-works.md](docs/how-it-works.md).
 
 ## Menu bar app
 
-Wattop also runs as a menu-bar app. It shows the stats you pick in the top bar of the screen. It has no window.
+Wattop also runs as a menu-bar app. It shows the stats you pick in the menu bar. It has no window.
 
-Build the app bundle:
+See [docs/menu-bar-app.md](docs/menu-bar-app.md). To build it from source, see [Install: build from source](docs/install.md#path-4-build-from-source).
 
-```sh
-cd app
-cargo tauri build --bundles app
-```
+## Docs
 
-The app is at `target/release/bundle/macos/Wattop.app`. Copy it to `/Applications` to install it. Use the menu bar item to choose the stats, open the terminal dashboard, or start Wattop at login.
+- [Install](docs/install.md)
+- [How it works](docs/how-it-works.md)
+- [Menu-bar app](docs/menu-bar-app.md)
+- [Releasing](docs/releasing.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## License
 
