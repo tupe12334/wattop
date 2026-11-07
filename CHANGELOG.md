@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/tupe12334/wattop/compare/wattop-v0.3.0...wattop-v0.3.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* seal app bundle with ad-hoc signature, laid-out dmg ([3b0a003](https://github.com/tupe12334/wattop/commit/3b0a0036f23ec4c07fb5e2c70d2909fdd76804f3))
+
 ## [0.3.0](https://github.com/tupe12334/wattop/compare/wattop-v0.2.0...wattop-v0.3.0) (2026-11-07)
 
 
