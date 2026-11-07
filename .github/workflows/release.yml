@@ -77,10 +77,10 @@ jobs:
       - name: Install dmgbuild
         run: |
           python3 -m venv "$RUNNER_TEMP/dmgvenv"
-          "$RUNNER_TEMP/dmgvenv/bin/pip" install dmgbuild
+          "$RUNNER_TEMP/dmgvenv/bin/pip" install dmgbuild==1.6.5
       - name: Package and upload to GitHub release (unsigned)
         run: |
           APP=$(ls -d target/release/bundle/macos/*.app)
           ditto -c -k --keepParent "$APP" "Wattop-$TAG-aarch64.app.zip"
-          "$RUNNER_TEMP/dmgvenv/bin/dmgbuild" -s app/dmg/settings.py -D app="$APP" "Wattop" "Wattop-$TAG-aarch64.dmg"
+          "$RUNNER_TEMP/dmgvenv/bin/python" app/dmg/build_dmg.py -s app/dmg/settings.py -D app="$APP" "Wattop" "Wattop-$TAG-aarch64.dmg"
           gh release upload "$TAG" "Wattop-$TAG-aarch64.app.zip" "Wattop-$TAG-aarch64.dmg" --clobber

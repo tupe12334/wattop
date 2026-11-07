@@ -17,11 +17,12 @@ from PIL import Image, ImageDraw, ImageFont
 HERE = Path(__file__).resolve().parent
 W, H = 660, 400
 SS = 4  # supersampling factor, downscaled for smooth edges
-TOP, BOTTOM = (0x0F, 0x17, 0x2A), (0x1E, 0x29, 0x3B)
-WHITE = (255, 255, 255)
-MUTED = (0x94, 0xA3, 0xB8)
-DIM = (0x64, 0x74, 0x8B)
-GREEN = (0x4A, 0xDE, 0x80)  # same as the app's charging color
+TOP, BOTTOM = (0xF8, 0xFA, 0xFC), (0xE2, 0xE8, 0xF0)  # light: Finder labels are black
+INK = (0x0F, 0x17, 0x2A)
+MUTED = (0x47, 0x55, 0x69)
+GREEN = (0x16, 0xA3, 0x4A)  # deeper green, readable on light
+# Lightning mark, points in a unit box (x, y), y down.
+BOLT = [(0.7, 0.0), (0.1, 0.6), (0.45, 0.6), (0.3, 1.0), (0.9, 0.4), (0.55, 0.4)]
 
 
 def load_font(size, bold):
@@ -52,7 +53,12 @@ def render(scale):
         )
 
     cx = W * k / 2
-    draw.text((cx, 56 * k), "Wattop", font=load_font(34 * k, True), fill=WHITE, anchor="mt")
+    title_font = load_font(34 * k, True)
+    title_w = draw.textlength("Wattop", font=title_font)
+    draw.text((cx + 12 * k, 56 * k), "Wattop", font=title_font, fill=INK, anchor="mt")
+    # Bolt mark left of the title. Its box is 26 px tall, 18 px wide.
+    bx, by, bh, bw = cx + 12 * k - title_w / 2 - 14 * k - 18 * k, 58 * k, 26 * k, 18 * k
+    draw.polygon([(bx + px * bw, by + py * bh) for px, py in BOLT], fill=GREEN)
     draw.text(
         (cx, 102 * k),
         "Drag Wattop to Applications",
@@ -69,12 +75,14 @@ def render(scale):
         [(x1 - head_len, y - head_h), (x1, y), (x1 - head_len, y + head_h)], fill=GREEN
     )
 
+    # Baseline at y=344: the Finder title bar hides the top ~32 px of the image,
+    # so the visible area ends near y=368. This leaves ~24 px of margin.
     draw.text(
-        (cx, 362 * k),
-        "Unsigned build · right-click → Open on first launch",
+        (cx, 344 * k),
+        "First launch: System Settings → Privacy & Security → Open Anyway",
         font=load_font(12 * k, False),
-        fill=DIM,
-        anchor="mt",
+        fill=MUTED,
+        anchor="ms",
     )
     return img.resize((W * scale, H * scale), Image.LANCZOS)
 

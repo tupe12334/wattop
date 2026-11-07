@@ -1,9 +1,11 @@
 # dmgbuild settings for the Wattop release .dmg.
 #
 # Run from the repo root:
-#   dmgbuild -s app/dmg/settings.py -D app=target/release/bundle/macos/Wattop.app "Wattop" out.dmg
+#   python3 app/dmg/build_dmg.py -s app/dmg/settings.py -D app=target/release/bundle/macos/Wattop.app "Wattop" out.dmg
 #
-# dmgbuild writes the Finder layout (.DS_Store) itself, so no Finder or GUI session is needed.
+# build_dmg.py wraps dmgbuild and drops its pBBk background bookmark, which stops Finder
+# from showing the background on macOS 26. dmgbuild writes the Finder layout (.DS_Store)
+# itself, so no Finder or GUI session is needed.
 
 import os
 
