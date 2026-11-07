@@ -34,7 +34,15 @@ type Selection = BTreeSet<Stat>;
 
 impl Stat {
     /// Menu order and title order.
-    const ALL: [Stat; 7] = [Stat::Input, Stat::Load, Stat::BatteryNet, Stat::BatteryPct, Stat::Charger, Stat::Temp, Stat::TimeLeft];
+    const ALL: [Stat; 7] = [
+        Stat::Input,
+        Stat::Load,
+        Stat::BatteryNet,
+        Stat::BatteryPct,
+        Stat::Charger,
+        Stat::Temp,
+        Stat::TimeLeft,
+    ];
 
     fn label(self) -> &'static str {
         match self {
@@ -56,24 +64,44 @@ impl Stat {
             Stat::BatteryNet => format!("▼{:.0}W", -s.battery_w),
             Stat::BatteryPct => format!("{}%", s.percent),
             Stat::Charger if !s.plugged_in => "🔋".into(),
-            Stat::Charger => s.power_ports.first().map_or("—".into(), |p| p.replacen(" port ", " ", 1)),
+            Stat::Charger => s
+                .power_ports
+                .first()
+                .map_or("—".into(), |p| p.replacen(" port ", " ", 1)),
             Stat::Temp => format!("{:.0}°", s.temp_c),
-            Stat::TimeLeft => s.minutes_left.map_or("--:--".into(), |m| format!("{}:{:02}", m / 60, m % 60)),
+            Stat::TimeLeft => s
+                .minutes_left
+                .map_or("--:--".into(), |m| format!("{}:{:02}", m / 60, m % 60)),
         }
     }
 }
 
 /// Menu-bar title: the selected stats in menu order, two spaces apart.
 fn title(s: &Sample, sel: &Selection) -> String {
-    let parts: Vec<String> = Stat::ALL.iter().filter(|st| sel.contains(st)).map(|st| st.glyph(s)).collect();
-    if parts.is_empty() { "⚡".into() } else { parts.join("  ") }
+    let parts: Vec<String> = Stat::ALL
+        .iter()
+        .filter(|st| sel.contains(st))
+        .map(|st| st.glyph(s))
+        .collect();
+    if parts.is_empty() {
+        "⚡".into()
+    } else {
+        parts.join("  ")
+    }
 }
 
 /// The four disabled readout lines at the top of the menu.
 fn info_lines(r: &Result<Sample, String>) -> [String; 4] {
     let s = match r {
         Ok(s) => s,
-        Err(e) => return [format!("Error: {e}"), String::new(), String::new(), String::new()],
+        Err(e) => {
+            return [
+                format!("Error: {e}"),
+                String::new(),
+                String::new(),
+                String::new(),
+            ];
+        }
     };
     let word = if s.battery_w > 0.0 {
         "charging"
@@ -89,7 +117,9 @@ fn info_lines(r: &Result<Sample, String>) -> [String; 4] {
     } else {
         "Source battery".into()
     };
-    let eta = s.minutes_left.map_or("--".into(), |m| format!("{}h {:02}m", m / 60, m % 60));
+    let eta = s
+        .minutes_left
+        .map_or("--".into(), |m| format!("{}h {:02}m", m / 60, m % 60));
     [
         format!("Input {:.1} W · Load {:.1} W", s.input_w, s.load_w),
         format!("Battery {}% {word} {:+.1} W", s.percent, s.battery_w),
@@ -125,7 +155,9 @@ fn load_selection(app: &AppHandle) -> Selection {
 }
 
 fn save_selection(app: &AppHandle, sel: &Selection) {
-    let Ok(dir) = app.path().app_config_dir() else { return };
+    let Ok(dir) = app.path().app_config_dir() else {
+        return;
+    };
     let _ = std::fs::create_dir_all(&dir);
     if let Ok(json) = serde_json::to_string_pretty(sel) {
         let _ = std::fs::write(dir.join("selection.json"), json);
@@ -150,7 +182,9 @@ fn refresh(app: &AppHandle) {
     for (st, check) in Stat::ALL.iter().zip(&items.checks) {
         let _ = check.set_checked(sel.contains(st));
     }
-    let _ = items.login.set_checked(app.autolaunch().is_enabled().unwrap_or(false));
+    let _ = items
+        .login
+        .set_checked(app.autolaunch().is_enabled().unwrap_or(false));
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_title(Some(title_text));
     }
@@ -171,7 +205,10 @@ fn open_dashboard() {
 }
 
 fn on_menu(app: &AppHandle, id: &str) {
-    let stat = id.strip_prefix("stat:").and_then(|i| i.parse::<usize>().ok()).and_then(|i| Stat::ALL.get(i).copied());
+    let stat = id
+        .strip_prefix("stat:")
+        .and_then(|i| i.parse::<usize>().ok())
+        .and_then(|i| Stat::ALL.get(i).copied());
     if let Some(st) = stat {
         {
             let state = app.state::<Mutex<Shared>>();
@@ -187,7 +224,11 @@ fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "login" => {
             let al = app.autolaunch();
-            let _ = if al.is_enabled().unwrap_or(false) { al.disable() } else { al.enable() };
+            let _ = if al.is_enabled().unwrap_or(false) {
+                al.disable()
+            } else {
+                al.enable()
+            };
             refresh(app);
         }
         "open" => open_dashboard(),
@@ -207,10 +248,26 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     let checks = Stat::ALL
         .iter()
         .enumerate()
-        .map(|(i, st)| CheckMenuItem::with_id(app, format!("stat:{i}"), st.label(), true, sel.contains(st), None::<&str>))
+        .map(|(i, st)| {
+            CheckMenuItem::with_id(
+                app,
+                format!("stat:{i}"),
+                st.label(),
+                true,
+                sel.contains(st),
+                None::<&str>,
+            )
+        })
         .collect::<tauri::Result<Vec<_>>>()?;
     let login_on = app.autolaunch().is_enabled().unwrap_or(false);
-    let login = CheckMenuItem::with_id(app, "login", "Launch at login", true, login_on, None::<&str>)?;
+    let login = CheckMenuItem::with_id(
+        app,
+        "login",
+        "Launch at login",
+        true,
+        login_on,
+        None::<&str>,
+    )?;
     let open = MenuItem::with_id(app, "open", "Open terminal dashboard", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Wattop", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
@@ -218,11 +275,25 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     let show = Submenu::with_items(app, "Show in menu bar", true, &check_refs)?;
 
     let mut top: Vec<&dyn IsMenuItem<Wry>> = info.iter().map(|i| i as _).collect();
-    top.extend([&sep as &dyn IsMenuItem<Wry>, &show, &sep, &open, &login, &quit]);
+    top.extend([
+        &sep as &dyn IsMenuItem<Wry>,
+        &show,
+        &sep,
+        &open,
+        &login,
+        &quit,
+    ]);
     let menu = Menu::with_items(app, &top)?;
 
-    app.manage(Mutex::new(Shared { sel, last: Err("loading".into()) }));
-    app.manage(Items { info, checks, login });
+    app.manage(Mutex::new(Shared {
+        sel,
+        last: Err("loading".into()),
+    }));
+    app.manage(Items {
+        info,
+        checks,
+        login,
+    });
 
     let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
     TrayIconBuilder::with_id(TRAY_ID)
@@ -238,7 +309,11 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     std::thread::spawn(move || {
         loop {
             let r = wattop::sample(smc.as_ref()).map_err(|e| format!("{e:#}"));
-            handle.state::<Mutex<Shared>>().lock().unwrap_or_else(|e| e.into_inner()).last = r;
+            handle
+                .state::<Mutex<Shared>>()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .last = r;
             refresh(&handle);
             std::thread::sleep(Duration::from_secs(1));
         }
@@ -249,12 +324,18 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
 
 fn main() -> tauri::Result<()> {
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| Ok(setup(app)?))
         .build(tauri::generate_context!())?;
     app.run(|_, event| {
         // Tray-only: keep running when no window exists.
-        if let RunEvent::ExitRequested { api, code: None, .. } = event {
+        if let RunEvent::ExitRequested {
+            api, code: None, ..
+        } = event
+        {
             api.prevent_exit();
         }
     });
@@ -290,20 +371,30 @@ mod tests {
 
     #[test]
     fn title_draining() {
-        let s = Sample { battery_w: -2.4, ..sample() };
+        let s = Sample {
+            battery_w: -2.4,
+            ..sample()
+        };
         assert_eq!(title(&s, &default_selection()), "⚡58W  ▼2W  9%");
     }
 
     #[test]
     fn title_unplugged_shows_battery_icon_for_port() {
-        let s = Sample { plugged_in: false, battery_w: -5.0, ..sample() };
+        let s = Sample {
+            plugged_in: false,
+            battery_w: -5.0,
+            ..sample()
+        };
         assert_eq!(title(&s, &sel(&[Stat::Charger])), "🔋");
     }
 
     #[test]
     fn title_all_stats_in_menu_order() {
         let all: Vec<Stat> = Stat::ALL.to_vec();
-        assert_eq!(title(&sample(), &sel(&all)), "⚡58W  ◆42W  ▲16W  9%  USB-C 2  31°  3:55");
+        assert_eq!(
+            title(&sample(), &sel(&all)),
+            "⚡58W  ◆42W  ▲16W  9%  USB-C 2  31°  3:55"
+        );
     }
 
     #[test]
