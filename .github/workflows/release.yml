@@ -64,6 +64,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install tauri-cli
         run: cargo install tauri-cli --version "^2" --locked
+      - name: Bundle the CLI as an app sidecar
+        run: |
+          cargo build --release -p wattop
+          mkdir -p app/binaries
+          cp target/release/wattop app/binaries/wattop-aarch64-apple-darwin
       - name: Build app and dmg (unsigned, not notarized)
         working-directory: app
         run: cargo tauri build --bundles app,dmg

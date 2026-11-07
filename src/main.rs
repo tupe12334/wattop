@@ -1,5 +1,6 @@
 mod battery;
 mod flow;
+mod install_app;
 mod silhouette;
 
 use anyhow::Result;
@@ -29,6 +30,8 @@ struct App {
     smc: Option<smc::Smc>,
     /// Port positions for this Mac model, None when unverified.
     ports: Option<&'static [silhouette::PortPos]>,
+    /// Show the install hint in the chart footer when the menu-bar app is missing.
+    app_hint: bool,
 }
 
 impl App {
@@ -45,12 +48,17 @@ impl App {
 }
 
 fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !args.is_empty() {
+        std::process::exit(install_app::dispatch(&args));
+    }
     let mut app = App {
         history: VecDeque::new(),
         last: Err("loading".into()),
         sys: System::new()?,
         smc: smc::Smc::open().ok(),
         ports: silhouette::layout(&silhouette::model()),
+        app_hint: !install_app::app_installed(),
     };
     app.tick();
     let mut terminal = ratatui::init();
@@ -125,7 +133,7 @@ fn draw(f: &mut Frame, app: &App, frame: u64) {
         }
         Err(e) => f.render_widget(Paragraph::new(e.as_str()).red().block(panel("wattop")), top),
     }
-    draw_chart(f, chart, &app.history);
+    draw_chart(f, chart, &app.history, app.app_hint);
     if procs_h > 0 {
         draw_procs(f, procs, &app.sys);
     }
@@ -275,7 +283,7 @@ fn draw_status(
     );
 }
 
-fn draw_chart(f: &mut Frame, area: Rect, h: &VecDeque<Sample>) {
+fn draw_chart(f: &mut Frame, area: Rect, h: &VecDeque<Sample>, app_hint: bool) {
     // Right-align: the newest sample sits at the right edge.
     let x0 = HISTORY.saturating_sub(h.len());
     let series = |pick: fn(&Sample) -> f64| -> Vec<(f64, f64)> {
@@ -348,6 +356,17 @@ fn draw_chart(f: &mut Frame, area: Rect, h: &VecDeque<Sample>) {
             " q to quit ",
             Style::new().fg(Color::DarkGray),
         ));
+    let block = if app_hint {
+        block.title_bottom(
+            Line::from(Span::styled(
+                " menu-bar app not installed · run: wattop install-app ",
+                Style::new().fg(Color::DarkGray),
+            ))
+            .right_aligned(),
+        )
+    } else {
+        block
+    };
     f.render_widget(
         Chart::new(datasets)
             .legend_position(None)

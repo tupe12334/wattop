@@ -15,6 +15,8 @@ use tauri::{
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use wattop::{smc, telemetry::Sample};
 
+mod cli_link;
+
 const TRAY_ID: &str = "wattop";
 const NO_DATA_TITLE: &str = "⚡ n/a";
 
@@ -144,6 +146,8 @@ fn info_lines(r: &Result<Sample, String>) -> [String; 5] {
 /// Menu items that change every tick. Managed as app state.
 struct Items {
     info: Vec<MenuItem<Wry>>,
+    /// Result of the last "Install command-line tool" click.
+    note: MenuItem<Wry>,
     checks: Vec<CheckMenuItem<Wry>>,
     login: CheckMenuItem<Wry>,
 }
@@ -203,14 +207,19 @@ fn refresh(app: &AppHandle) {
     }
 }
 
-/// Opens the TUI in iTerm2 when it sits next to this app, else runs it from PATH in Terminal.
+/// Runs the bundled TUI in iTerm2 when present, else `wattop` from PATH in Terminal.
 fn open_dashboard() {
-    let bundled = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|d| d.join("wattop")))
-        .filter(|p| p.exists());
-    let _ = match bundled {
-        Some(p) => Command::new("open").args(["-a", "iTerm2"]).arg(p).spawn(),
+    let _ = match cli_link::bundled_cli() {
+        Some(p) => {
+            let cmd = p
+                .display()
+                .to_string()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            Command::new("osascript")
+                .args(["-e", &format!(r#"tell application "iTerm2" to create window with default profile command "{cmd}""#)])
+                .spawn()
+        }
         None => Command::new("osascript")
             .args(["-e", r#"tell application "Terminal" to do script "wattop""#])
             .spawn(),
@@ -245,6 +254,10 @@ fn on_menu(app: &AppHandle, id: &str) {
             refresh(app);
         }
         "open" => open_dashboard(),
+        "install_cli" => {
+            let msg = cli_link::install();
+            let _ = app.state::<Items>().note.set_text(msg);
+        }
         "quit" => app.exit(0),
         _ => {}
     }
@@ -281,7 +294,15 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
         login_on,
         None::<&str>,
     )?;
+    let note = MenuItem::with_id(app, "note", "", false, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open terminal dashboard", true, None::<&str>)?;
+    let install_cli = MenuItem::with_id(
+        app,
+        "install_cli",
+        "Install command-line tool",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit Wattop", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let check_refs: Vec<&dyn IsMenuItem<Wry>> = checks.iter().map(|c| c as _).collect();
@@ -289,10 +310,12 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
 
     let mut top: Vec<&dyn IsMenuItem<Wry>> = info.iter().map(|i| i as _).collect();
     top.extend([
-        &sep as &dyn IsMenuItem<Wry>,
+        &note as &dyn IsMenuItem<Wry>,
+        &sep,
         &show,
         &sep,
         &open,
+        &install_cli,
         &login,
         &quit,
     ]);
@@ -304,6 +327,7 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     }));
     app.manage(Items {
         info,
+        note,
         checks,
         login,
     });
