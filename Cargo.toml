@@ -2,6 +2,13 @@
 name = "wattop"
 version = "0.1.0"
 edition = "2024"
+description = "Hybrid-car style terminal power dashboard for macOS laptops: live watts, charger port and battery flow"
+license = "MIT"
+repository = "https://github.com/tupe12334/wattop"
+readme = "README.md"
+keywords = ["power", "battery", "macos", "tui", "dashboard"]
+categories = ["command-line-utilities", "hardware-support"]
+exclude = ["app/"]
 
 [workspace]
 members = ["app"]
