@@ -1,4 +1,4 @@
-//! Energy flow panel: charger, system and battery nodes joined by animated lines.
+//! Energy flow panel: charger, battery and system boxes in one row, joined by animated connectors.
 
 use crate::panel;
 use wattop::telemetry::Sample;
@@ -14,8 +14,13 @@ use ratatui::{
 /// Battery watts within this band count as holding.
 pub const EPS_W: f64 = 0.05;
 pub const ORANGE: Color = Color::Rgb(255, 140, 0);
-const NODE_H: i32 = 5;
-const MID: i32 = NODE_H / 2; // row where lines meet a node
+const BOX_H: i32 = 5; // box height, borders included
+const BOX_MIN_W: i32 = 14; // narrowest box that fits its text
+const GAP_MIN_W: i32 = 5; // narrowest connector gap
+const GAP_MAX_W: i32 = 12;
+
+/// A column range inside the panel: (start x, width).
+pub type Cols = (i32, i32);
 
 /// Which energy lines carry power right now.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -39,6 +44,32 @@ pub fn signed_w(v: f64) -> String {
     format!("{v:+.1} W").replace('-', "−")
 }
 
+/// Columns of the one-line layout: charger, gap 1, battery, gap 2, system.
+/// Boxes share one width and the two gaps share one width. Spare cells go to the left margin.
+pub fn line_layout(width: i32) -> (Cols, Cols, Cols, Cols, Cols) {
+    let width = width.max(0);
+    let gap = (width / 8).clamp(GAP_MIN_W, GAP_MAX_W).min(width / 2);
+    let box_w = ((width - 2 * gap) / 3).max(0);
+    let left = (width - (3 * box_w + 2 * gap)) / 2;
+    let charger = left;
+    let gap1 = charger + box_w;
+    let battery = gap1 + gap;
+    let gap2 = battery + box_w;
+    let system = gap2 + gap;
+    ((charger, box_w), (gap1, gap), (battery, box_w), (gap2, gap), (system, box_w))
+}
+
+/// Battery colour, state word and value text.
+fn battery_state(s: &Sample) -> (Color, &'static str, String) {
+    if s.battery_w > EPS_W {
+        (Color::Green, "▲ charging", signed_w(s.battery_w))
+    } else if s.battery_w < -EPS_W {
+        (ORANGE, "▼ draining", signed_w(s.battery_w))
+    } else {
+        (Color::Cyan, "■ holding", "0.0 W".to_string())
+    }
+}
+
 pub fn draw(f: &mut Frame, area: Rect, s: &Sample, frame: u64) {
     let block = panel("energy flow");
     let inner = block.inner(area);
@@ -46,65 +77,96 @@ pub fn draw(f: &mut Frame, area: Rect, s: &Sample, frame: u64) {
 
     let live = flows(s);
     let (w, h) = (inner.width as i32, inner.height as i32);
-    let nw = (w / 3).clamp(14, 28);
-    let sx = w - nw; // system node left edge
-    let bx = (w - nw) / 2; // battery node left edge
-    let by = h - NODE_H; // battery node top edge
-    let cx = nw / 2; // charger node centre
-    let sxc = sx + nw / 2; // system node centre
-    let bottom = by + MID; // row where battery lines run
+    let (charger, gap1, battery, gap2, system) = line_layout(w);
+    if charger.1 < BOX_MIN_W || h < BOX_H {
+        compact(f, inner, s, live);
+        return;
+    }
 
-    let top_line = [(nw, MID), (sx - 1, MID)];
-    let charge_line = [(cx, NODE_H), (cx, bottom), (bx - 1, bottom)];
-    let drain_line = [(bx + nw, bottom), (sxc, bottom), (sxc, NODE_H)];
-
-    let buf = f.buffer_mut();
-    let on = |on: bool, c: Color| on.then_some(c);
-    route(buf, inner, &top_line, on(live.charger_to_system, Color::Green), frame);
-    route(buf, inner, &charge_line, on(live.charger_to_battery, Color::Green), frame);
-    route(buf, inner, &drain_line, on(live.battery_to_system, ORANGE), frame);
+    let left_live = (live.charger_to_system || live.charger_to_battery).then_some(Color::Green);
+    let right_live = if live.battery_to_system {
+        Some(ORANGE)
+    } else if live.charger_to_system {
+        Some(Color::Green)
+    } else {
+        None
+    };
+    connector(f.buffer_mut(), inner, gap1, left_live, frame, Some(&format!("{:.1} W", s.input_w)));
+    connector(f.buffer_mut(), inner, gap2, right_live, frame, None);
 
     let (charger_border, charger_lines) = if s.plugged_in {
-        let ports = if s.power_ports.is_empty() { "no port".to_string() } else { s.power_ports.join(" + ") };
-        let source = if s.power_sources > 1 {
-            format!("{} sources", s.power_sources)
-        } else {
-            s.charger_name.clone().unwrap_or_else(|| "unknown adapter".into())
-        };
-        (
-            Color::Green,
-            vec![
-                Line::from(ports.green().bold()),
-                Line::from(source),
-                Line::from(format!("{:.1} V × {:.1} A", s.charger_volts, s.charger_amps).dark_gray()),
-            ],
-        )
+        let port = if s.power_ports.is_empty() { "no port".to_string() } else { s.power_ports.join(" + ") };
+        (Color::Green, vec![Line::from(port.green().bold()), Line::from(format!("{} W", s.adapter_watts))])
     } else {
         (Color::DarkGray, vec![Line::from("UNPLUGGED".dark_gray().dim())])
     };
-    node(f, inner, (0, 0), nw, charger_border, "⚡ CHARGER", charger_lines);
+    node(f, inner, charger, charger_border, "⚡ CHARGER", charger_lines);
 
-    let system = vec![Line::from(format!("load {:.1} W", s.load_w).yellow().bold())];
-    node(f, inner, (sx, 0), nw, Color::Cyan, "◆ SYSTEM", system);
+    let (batt_color, state, value) = battery_state(s);
+    let batt_lines = vec![Line::from(value.fg(batt_color).bold()), Line::from(state.fg(batt_color))];
+    node(f, inner, battery, batt_color, "▮ BATTERY", batt_lines);
 
-    let (batt_border, batt_val) = if s.battery_w > EPS_W {
-        (Color::Green, signed_w(s.battery_w).green().bold())
-    } else if s.battery_w < -EPS_W {
-        (ORANGE, signed_w(s.battery_w).fg(ORANGE).bold())
-    } else {
-        (Color::DarkGray, "0.0 W".dark_gray())
-    };
-    node(f, inner, (bx, by), nw, batt_border, "▮ BATTERY", vec![Line::from(batt_val)]);
+    let system_lines = vec![Line::from(format!("load {:.1} W", s.load_w).yellow().bold())];
+    node(f, inner, system, Color::Cyan, "◆ SYSTEM", system_lines);
 }
 
-/// Draws one rounded node box: a title on the border, then body lines.
-fn node(f: &mut Frame, inner: Rect, at: (i32, i32), nw: i32, border: Color, title: &str, lines: Vec<Line>) {
-    let rect = clip(inner, at.0, at.1, nw, NODE_H);
+/// One-line text fallback for panels too narrow or short for boxes. No borders.
+fn compact(f: &mut Frame, inner: Rect, s: &Sample, live: Flows) {
+    let (charger, charger_style) = if s.plugged_in {
+        (format!("⚡ {:.1} W", s.input_w), Style::new().fg(Color::Green).bold())
+    } else {
+        ("⚡ unplugged".to_string(), Style::new().fg(Color::DarkGray))
+    };
+    let (batt_color, _, value) = battery_state(s);
+    let link = |on: bool, c: Color| Style::new().fg(if on { c } else { Color::DarkGray });
+    let left_on = live.charger_to_system || live.charger_to_battery;
+    let right_color = if live.battery_to_system { ORANGE } else { Color::Green };
+    let right_on = live.battery_to_system || live.charger_to_system;
+    let line = Line::from(vec![
+        Span::styled(charger, charger_style),
+        Span::styled(" ─▸ ", link(left_on, Color::Green)),
+        Span::styled(format!("▮ {value}"), Style::new().fg(batt_color).bold()),
+        Span::styled(" ─▸ ", link(right_on, right_color)),
+        Span::styled(format!("◆ {:.1} W", s.load_w), Style::new().fg(Color::Yellow).bold()),
+    ]);
+    // Middle row only. Paragraph clips anything wider than the panel.
+    let row = Rect { y: inner.y + inner.height / 2, height: inner.height.min(1), ..inner };
+    f.render_widget(Paragraph::new(line).centered(), row);
+}
+
+/// Draws one box at a column range, with its title on the top border and body lines centred.
+fn node(f: &mut Frame, inner: Rect, cols: Cols, border: Color, title: &str, lines: Vec<Line>) {
+    let rect = clip(inner, cols.0, 0, cols.1, BOX_H);
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(border))
         .title(Span::styled(format!(" {title} "), Style::new().fg(border).bold()));
-    f.render_widget(Paragraph::new(lines).centered().block(block), rect);
+    let body = block.inner(rect);
+    f.render_widget(block, rect);
+    let top = body.height.saturating_sub(lines.len() as u16) / 2;
+    let text = Rect { y: body.y + top, height: body.height.min(lines.len() as u16), ..body };
+    f.render_widget(Paragraph::new(lines).centered(), text);
+}
+
+/// Draws one connector gap on the middle row. `live` gives the colour of a moving line,
+/// None draws a dim idle line. `label` shows above a live line when it fits the gap.
+fn connector(buf: &mut Buffer, inner: Rect, gap: Cols, live: Option<Color>, frame: u64, label: Option<&str>) {
+    let row = BOX_H / 2;
+    for i in 0..gap.1 {
+        let (sym, style) = match live {
+            // Chevrons march right: the phase shifts one cell per frame.
+            Some(c) if (i as u64 + frame) % 2 == 1 => ("▸", Style::new().fg(c).bold()),
+            Some(c) => ("─", Style::new().fg(c)),
+            None => ("─", Style::new().fg(Color::DarkGray).dim()),
+        };
+        put(buf, inner, gap.0 + i, row, sym, style);
+    }
+    if let (Some(text), Some(c)) = (label, live) {
+        let n = text.chars().count() as i32;
+        if n <= gap.1 {
+            put_str(buf, inner, gap.0 + (gap.1 - n) / 2, row - 1, text, Style::new().fg(c).bold());
+        }
+    }
 }
 
 /// Clamps a box to the inner area so nothing draws outside the panel.
@@ -114,97 +176,6 @@ fn clip(inner: Rect, x: i32, y: i32, w: i32, h: i32) -> Rect {
     let w = w.min(inner.width as i32 - x).max(0);
     let h = h.min(inner.height as i32 - y).max(0);
     Rect::new(inner.x + x as u16, inner.y + y as u16, w as u16, h as u16)
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Side {
-    L,
-    R,
-    U,
-    D,
-}
-
-impl Side {
-    fn opposite(self) -> Self {
-        match self {
-            Side::L => Side::R,
-            Side::R => Side::L,
-            Side::U => Side::D,
-            Side::D => Side::U,
-        }
-    }
-}
-
-/// Line glyph that joins two sides of one cell.
-fn glyph(a: Side, b: Side) -> &'static str {
-    use Side::*;
-    match (a, b) {
-        (L, R) | (R, L) => "─",
-        (U, D) | (D, U) => "│",
-        (R, D) | (D, R) => "┌",
-        (L, D) | (D, L) => "┐",
-        (R, U) | (U, R) => "└",
-        _ => "┘",
-    }
-}
-
-fn arrow(d: Side) -> &'static str {
-    match d {
-        Side::R => "▸",
-        Side::L => "◂",
-        Side::D => "▾",
-        Side::U => "▴",
-    }
-}
-
-/// Direction of one step between two neighbouring cells.
-fn step(a: (i32, i32), b: (i32, i32)) -> Side {
-    if b.0 > a.0 {
-        Side::R
-    } else if b.0 < a.0 {
-        Side::L
-    } else if b.1 > a.1 {
-        Side::D
-    } else {
-        Side::U
-    }
-}
-
-/// Expands an axis-aligned polyline into every cell it touches.
-fn walk(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
-    let mut out = vec![points[0]];
-    for pair in points.windows(2) {
-        let (mut x, mut y) = pair[0];
-        let (tx, ty) = pair[1];
-        while (x, y) != (tx, ty) {
-            x += (tx - x).signum();
-            y += (ty - y).signum();
-            out.push((x, y));
-        }
-    }
-    out
-}
-
-/// Draws a line. `live` gives the colour of a moving line, None draws a dim idle line.
-fn route(buf: &mut Buffer, inner: Rect, points: &[(i32, i32)], live: Option<Color>, frame: u64) {
-    let cells = walk(points);
-    let n = cells.len();
-    if n < 2 {
-        return;
-    }
-    for i in 0..n {
-        let d_in = if i == 0 { step(cells[0], cells[1]) } else { step(cells[i - 1], cells[i]) };
-        let d_out = if i + 1 < n { step(cells[i], cells[i + 1]) } else { d_in };
-        let (x, y) = cells[i];
-        let straight = d_in == d_out;
-        match live {
-            Some(c) if straight && i > 0 && i + 1 < n && (i as u64 % 4) == frame % 4 => {
-                put(buf, inner, x, y, arrow(d_out), Style::new().fg(c).bold());
-            }
-            Some(c) => put(buf, inner, x, y, glyph(d_in.opposite(), d_out), Style::new().fg(c)),
-            None => put(buf, inner, x, y, glyph(d_in.opposite(), d_out), Style::new().fg(Color::DarkGray).dim()),
-        }
-    }
 }
 
 /// Writes one symbol at a cell relative to `inner`, skipping cells outside it.
@@ -238,5 +209,33 @@ mod tests {
         assert_eq!(flows(&draining), Flows { charger_to_system: true, charger_to_battery: false, battery_to_system: true });
         assert_eq!(flows(&unplugged), Flows { charger_to_system: false, charger_to_battery: false, battery_to_system: true });
         assert_eq!(flows(&idle), Flows::default());
+    }
+
+    #[test]
+    fn line_layout_boxes_are_equal_and_disjoint() {
+        for width in [0, 1, 7, 40, 52, 72, 100, 120, 200] {
+            let (c, g1, b, g2, s) = line_layout(width);
+            assert_eq!(c.1, b.1, "width {width}");
+            assert_eq!(b.1, s.1, "width {width}");
+            assert_eq!(g1.1, g2.1, "width {width}");
+            let parts = [c, g1, b, g2, s];
+            let mut end = 0;
+            for (start, len) in parts {
+                assert!(len >= 0, "width {width}");
+                assert!(start >= end, "overlap at width {width}");
+                end = start + len;
+            }
+            assert!(end <= width, "overflow at width {width}");
+        }
+    }
+
+    #[test]
+    fn line_layout_fits_common_widths() {
+        for width in [40, 72, 120] {
+            let (c, g1, b, g2, s) = line_layout(width);
+            assert!(g1.1 >= GAP_MIN_W && g2.1 >= GAP_MIN_W, "gaps at width {width}");
+            assert_eq!(c.0, 0, "left margin at width {width}");
+            assert!(s.0 + s.1 <= width && b.0 == g1.0 + g1.1, "layout at width {width}");
+        }
     }
 }

@@ -28,15 +28,13 @@ pub struct PortPos {
     pub slots: u8,
 }
 
-/// Port positions per model. Only verified layouts are listed. Never guess.
+/// Power-capable ports per model. Only verified layouts are listed. Never guess.
+/// Non-power ports (HDMI, SD, audio) are left out on purpose.
 const MAC16_1: &[PortPos] = &[
     PortPos { name: "MagSafe", short: "MagSafe", side: Side::Left, slot: 1, slots: 4 },
     PortPos { name: "USB-C port 2", short: "USB-C 2", side: Side::Left, slot: 2, slots: 4 },
     PortPos { name: "USB-C port 1", short: "USB-C 1", side: Side::Left, slot: 3, slots: 4 },
-    PortPos { name: "audio", short: "audio", side: Side::Left, slot: 4, slots: 4 },
-    PortPos { name: "HDMI", short: "HDMI", side: Side::Right, slot: 1, slots: 3 },
     PortPos { name: "USB-C port 4", short: "USB-C 4", side: Side::Right, slot: 2, slots: 3 },
-    PortPos { name: "SD card", short: "SD", side: Side::Right, slot: 3, slots: 3 },
 ];
 
 /// Port table for a `hw.model` id. None when the layout is not verified.
@@ -156,6 +154,16 @@ mod tests {
         let ports = layout("Mac16,1").unwrap();
         let p = ports.iter().find(|p| p.name == "USB-C port 2").unwrap();
         assert_eq!((p.side, p.slot, p.slots), (Side::Left, 2, 4));
+    }
+
+    #[test]
+    fn mac16_1_lists_only_power_ports() {
+        let ports = layout("Mac16,1").unwrap();
+        assert_eq!(ports.len(), 4);
+        assert!(
+            ports.iter().all(|p| p.name == "MagSafe" || p.name.starts_with("USB-C")),
+            "non-power port in layout: {ports:?}"
+        );
     }
 
     #[test]

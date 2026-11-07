@@ -83,13 +83,14 @@ fn panel(title: &str) -> Block<'_> {
         .title(Span::styled(format!(" {title} "), Style::new().fg(Color::Cyan).bold()))
 }
 
-/// Row heights for flow, status, chart, procs. Flow shrinks first (to 9 rows),
-/// then the chart keeps at least 6 rows. Procs (0 rows) hide when there is no room.
+/// Row heights for flow, status, chart, procs. Flow is one line of boxes (7 rows with border),
+/// then the chart keeps at least 8 rows. Procs (0 rows) hide when there is no room.
 fn heights(total: u16) -> [u16; 4] {
+    const FLOW: u16 = 7;
     const STATUS: u16 = 9;
     const CHART_MIN: u16 = 8;
     const PROCS_MIN: u16 = 5;
-    let flow = (total * 45 / 100).clamp(9, 12).min(total.saturating_sub(STATUS + CHART_MIN));
+    let flow = FLOW.min(total.saturating_sub(STATUS + CHART_MIN));
     let below = total.saturating_sub(flow + STATUS);
     let procs = if below >= CHART_MIN + PROCS_MIN { (below * 2 / 5).max(PROCS_MIN) } else { 0 };
     [flow, STATUS, below - procs, procs]
@@ -284,10 +285,11 @@ mod tests {
     use super::heights;
 
     #[test]
-    fn chart_keeps_six_rows_on_small_terminals() {
+    fn flow_is_seven_rows_and_chart_keeps_room() {
         let [flow, status, chart, procs] = heights(28);
-        assert_eq!((flow, status, chart, procs), (11, 9, 8, 0));
+        assert_eq!((flow, status, chart, procs), (7, 9, 12, 0));
         assert!(heights(24)[2] >= 8);
+        assert_eq!(heights(60)[0], 7);
         assert_eq!(heights(60).iter().sum::<u16>(), 60);
     }
 }
