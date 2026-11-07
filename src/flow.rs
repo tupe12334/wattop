@@ -1,41 +1,45 @@
-//! Energy flow panel: charger, battery and system boxes in one row, joined by animated connectors.
+//! Energy flow panel: a power bus junction. CHARGER and SYSTEM sit on one row, BATTERY sits under the junction.
 
 use crate::panel;
-use wattop::telemetry::Sample;
 use ratatui::{
     Frame,
     buffer::Buffer,
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, BorderType, Paragraph},
 };
+use wattop::telemetry::Sample;
 
 /// Battery watts within this band count as holding.
 pub const EPS_W: f64 = 0.05;
 pub const ORANGE: Color = Color::Rgb(255, 140, 0);
-const BOX_H: i32 = 5; // box height, borders included
-const BOX_MIN_W: i32 = 14; // narrowest box that fits its text
-const GAP_MIN_W: i32 = 5; // narrowest connector gap
-const GAP_MAX_W: i32 = 12;
+const BOX_H: u16 = 5; // box height, borders included
+const BOX_W: u16 = 15; // odd, so BATTERY centres exactly under the junction
+const BUS_ROW: u16 = 2; // middle row of the top boxes, where the bus runs
+const GAP_MIN: u16 = 6; // narrowest bus gap that still fits a label
+const GAP_MAX: u16 = 14;
+const INNER_H: u16 = 2 * BOX_H; // top boxes, then BATTERY
+/// Panel rows the bus layout needs, borders included.
+pub const PANEL_H: u16 = INNER_H + 2;
 
-/// A column range inside the panel: (start x, width).
-pub type Cols = (i32, i32);
-
-/// Which energy lines carry power right now.
+/// Which energy lines carry power right now. The bus to SYSTEM is always live.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Flows {
-    pub charger_to_system: bool,
-    pub charger_to_battery: bool,
-    pub battery_to_system: bool,
+    /// The charger feeds the bus.
+    pub charger_to_bus: bool,
+    /// The battery feeds the bus, which happens when it drains.
+    pub battery_to_bus: bool,
+    /// The bus feeds the battery, which happens when it charges.
+    pub bus_to_battery: bool,
 }
 
 /// Decides which lines are live. Each line has one fixed direction.
 pub fn flows(s: &Sample) -> Flows {
     Flows {
-        charger_to_system: s.plugged_in,
-        charger_to_battery: s.battery_w > EPS_W,
-        battery_to_system: s.battery_w < -EPS_W,
+        charger_to_bus: s.plugged_in,
+        battery_to_bus: s.battery_w < -EPS_W,
+        bus_to_battery: s.battery_w > EPS_W,
     }
 }
 
@@ -44,19 +48,34 @@ pub fn signed_w(v: f64) -> String {
     format!("{v:+.1} W").replace('-', "−")
 }
 
-/// Columns of the one-line layout: charger, gap 1, battery, gap 2, system.
-/// Boxes share one width and the two gaps share one width. Spare cells go to the left margin.
-pub fn line_layout(width: i32) -> (Cols, Cols, Cols, Cols, Cols) {
-    let width = width.max(0);
-    let gap = (width / 8).clamp(GAP_MIN_W, GAP_MAX_W).min(width / 2);
-    let box_w = ((width - 2 * gap) / 3).max(0);
-    let left = (width - (3 * box_w + 2 * gap)) / 2;
-    let charger = left;
-    let gap1 = charger + box_w;
-    let battery = gap1 + gap;
-    let gap2 = battery + box_w;
-    let system = gap2 + gap;
-    ((charger, box_w), (gap1, gap), (battery, box_w), (gap2, gap), (system, box_w))
+/// Box and junction positions, relative to the panel's inner area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BusRects {
+    charger: Rect,
+    system: Rect,
+    battery: Rect,
+    /// Column of the junction ●. The vertical link runs down this column.
+    junction: u16,
+    /// Width of each bus gap, left and right of the junction.
+    gap: u16,
+}
+
+/// Places the three equal boxes around the junction. None when the area is too small.
+fn bus_layout(width: u16, height: u16) -> Option<BusRects> {
+    let span = 2 * BOX_W + 1; // charger, gap, junction, gap, system
+    if width < span + 2 * GAP_MIN || height < INNER_H {
+        return None;
+    }
+    let gap = ((width - span) / 2).min(GAP_MAX);
+    let left = (width - span - 2 * gap) / 2;
+    let junction = left + BOX_W + gap;
+    Some(BusRects {
+        charger: Rect::new(left, 0, BOX_W, BOX_H),
+        system: Rect::new(junction + 1 + gap, 0, BOX_W, BOX_H),
+        battery: Rect::new(junction - BOX_W / 2, BOX_H, BOX_W, BOX_H),
+        junction,
+        gap,
+    })
 }
 
 /// Battery colour, state word and value text.
@@ -76,106 +95,260 @@ pub fn draw(f: &mut Frame, area: Rect, s: &Sample, frame: u64) {
     f.render_widget(block, area);
 
     let live = flows(s);
-    let (w, h) = (inner.width as i32, inner.height as i32);
-    let (charger, gap1, battery, gap2, system) = line_layout(w);
-    if charger.1 < BOX_MIN_W || h < BOX_H {
+    let Some(b) = bus_layout(inner.width, inner.height) else {
         compact(f, inner, s, live);
         return;
+    };
+    {
+        let buf = f.buffer_mut();
+        bus_row(buf, inner, &b, s, live, frame);
+        vertical_link(buf, inner, &b, s, live, frame);
     }
 
-    let left_live = (live.charger_to_system || live.charger_to_battery).then_some(Color::Green);
-    let right_live = if live.battery_to_system {
-        Some(ORANGE)
-    } else if live.charger_to_system {
-        Some(Color::Green)
-    } else {
-        None
-    };
-    connector(f.buffer_mut(), inner, gap1, left_live, frame, Some(&format!("{:.1} W", s.input_w)));
-    connector(f.buffer_mut(), inner, gap2, right_live, frame, None);
-
     let (charger_border, charger_lines) = if s.plugged_in {
-        let port = if s.power_ports.is_empty() { "no port".to_string() } else { s.power_ports.join(" + ") };
-        (Color::Green, vec![Line::from(port.green().bold()), Line::from(format!("{} W", s.adapter_watts))])
+        let port = if s.power_ports.is_empty() {
+            "no port".to_string()
+        } else {
+            s.power_ports.join(" + ")
+        };
+        (
+            Color::Green,
+            vec![
+                Line::from(port.green().bold()),
+                Line::from(format!("{} W", s.adapter_watts)),
+            ],
+        )
     } else {
-        (Color::DarkGray, vec![Line::from("UNPLUGGED".dark_gray().dim())])
+        (
+            Color::DarkGray,
+            vec![Line::from("UNPLUGGED".dark_gray().dim())],
+        )
     };
-    node(f, inner, charger, charger_border, "⚡ CHARGER", charger_lines);
+    node(
+        f,
+        inner,
+        b.charger,
+        charger_border,
+        "⚡ CHARGER",
+        charger_lines,
+    );
 
     let (batt_color, state, value) = battery_state(s);
-    let batt_lines = vec![Line::from(value.fg(batt_color).bold()), Line::from(state.fg(batt_color))];
-    node(f, inner, battery, batt_color, "▮ BATTERY", batt_lines);
+    let batt_lines = vec![
+        Line::from(value.fg(batt_color).bold()),
+        Line::from(state.fg(batt_color)),
+    ];
+    node(f, inner, b.battery, batt_color, "▮ BATTERY", batt_lines);
 
-    let system_lines = vec![Line::from(format!("load {:.1} W", s.load_w).yellow().bold())];
-    node(f, inner, system, Color::Cyan, "◆ SYSTEM", system_lines);
+    let system_lines = vec![Line::from(
+        format!("load {:.1} W", s.load_w).yellow().bold(),
+    )];
+    node(f, inner, b.system, Color::Cyan, "◆ SYSTEM", system_lines);
 }
 
-/// One-line text fallback for panels too narrow or short for boxes. No borders.
-fn compact(f: &mut Frame, inner: Rect, s: &Sample, live: Flows) {
-    let (charger, charger_style) = if s.plugged_in {
-        (format!("⚡ {:.1} W", s.input_w), Style::new().fg(Color::Green).bold())
+/// Draws the bus row: charger into the junction, then junction out to the system.
+fn bus_row(buf: &mut Buffer, inner: Rect, b: &BusRects, s: &Sample, live: Flows, frame: u64) {
+    let row = BUS_ROW as i32;
+    let gap = b.gap as i32;
+    let left_x = b.charger.right() as i32;
+    let right_x = b.junction as i32 + 1;
+    let left_color = s.plugged_in.then_some(Color::Green);
+    let right_color = if live.battery_to_bus {
+        ORANGE
     } else {
-        ("⚡ unplugged".to_string(), Style::new().fg(Color::DarkGray))
+        Color::Green
     };
-    let (batt_color, _, value) = battery_state(s);
-    let link = |on: bool, c: Color| Style::new().fg(if on { c } else { Color::DarkGray });
-    let left_on = live.charger_to_system || live.charger_to_battery;
-    let right_color = if live.battery_to_system { ORANGE } else { Color::Green };
-    let right_on = live.battery_to_system || live.charger_to_system;
-    let line = Line::from(vec![
-        Span::styled(charger, charger_style),
-        Span::styled(" ─▸ ", link(left_on, Color::Green)),
-        Span::styled(format!("▮ {value}"), Style::new().fg(batt_color).bold()),
-        Span::styled(" ─▸ ", link(right_on, right_color)),
-        Span::styled(format!("◆ {:.1} W", s.load_w), Style::new().fg(Color::Yellow).bold()),
-    ]);
-    // Middle row only. Paragraph clips anything wider than the panel.
-    let row = Rect { y: inner.y + inner.height / 2, height: inner.height.min(1), ..inner };
-    f.render_widget(Paragraph::new(line).centered(), row);
+
+    chevrons(buf, inner, left_x, gap, row, left_color, frame);
+    chevrons(buf, inner, right_x, gap, row, Some(right_color), frame);
+    put(
+        buf,
+        inner,
+        b.junction as i32,
+        row,
+        "●",
+        Style::new().fg(Color::White).bold(),
+    );
+    if s.plugged_in {
+        gap_label(
+            buf,
+            inner,
+            left_x,
+            gap,
+            &format!("{:.1} W", s.input_w),
+            Color::Green,
+        );
+    }
+    gap_label(
+        buf,
+        inner,
+        right_x,
+        gap,
+        &format!("{:.1} W", s.load_w),
+        right_color,
+    );
 }
 
-/// Draws one box at a column range, with its title on the top border and body lines centred.
-fn node(f: &mut Frame, inner: Rect, cols: Cols, border: Color, title: &str, lines: Vec<Line>) {
-    let rect = clip(inner, cols.0, 0, cols.1, BOX_H);
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(Style::new().fg(border))
-        .title(Span::styled(format!(" {title} "), Style::new().fg(border).bold()));
-    let body = block.inner(rect);
-    f.render_widget(block, rect);
-    let top = body.height.saturating_sub(lines.len() as u16) / 2;
-    let text = Rect { y: body.y + top, height: body.height.min(lines.len() as u16), ..body };
-    f.render_widget(Paragraph::new(lines).centered(), text);
+/// Draws the vertical link under the junction, then the battery draw label beside it.
+fn vertical_link(buf: &mut Buffer, inner: Rect, b: &BusRects, s: &Sample, live: Flows, frame: u64) {
+    let x = b.junction as i32;
+    let (color, down) = (Color::Green, live.bus_to_battery);
+    let up_color = ORANGE;
+    let link_color = if down {
+        color
+    } else if live.battery_to_bus {
+        up_color
+    } else {
+        Color::DarkGray
+    };
+    for y in (BUS_ROW as i32 + 1)..(BOX_H as i32) {
+        let (sym, style) = if down {
+            // Chevrons march down: the phase shifts one row per frame.
+            let sym = if (y as u64 + frame) % 2 == 1 {
+                "▾"
+            } else {
+                "│"
+            };
+            (sym, Style::new().fg(link_color).bold())
+        } else if live.battery_to_bus {
+            // Chevrons march up.
+            let sym = if (y as u64 + frame).is_multiple_of(2) {
+                "▴"
+            } else {
+                "│"
+            };
+            (sym, Style::new().fg(link_color).bold())
+        } else {
+            ("│", Style::new().fg(link_color).dim())
+        };
+        put(buf, inner, x, y, sym, style);
+    }
+    // Label beside the link. It must stay inside the gap, so it never touches the SYSTEM box.
+    let text = format!("{:.1} W", s.battery_w.abs());
+    if (text.chars().count() as i32) < b.gap as i32 {
+        put_str(
+            buf,
+            inner,
+            x + 2,
+            BUS_ROW as i32 + 1,
+            &text,
+            Style::new().fg(link_color).bold(),
+        );
+    }
 }
 
-/// Draws one connector gap on the middle row. `live` gives the colour of a moving line,
-/// None draws a dim idle line. `label` shows above a live line when it fits the gap.
-fn connector(buf: &mut Buffer, inner: Rect, gap: Cols, live: Option<Color>, frame: u64, label: Option<&str>) {
-    let row = BOX_H / 2;
-    for i in 0..gap.1 {
+/// One-line label centred above a bus gap, shown only when it fits the gap.
+fn gap_label(buf: &mut Buffer, inner: Rect, x: i32, width: i32, text: &str, color: Color) {
+    let n = text.chars().count() as i32;
+    if n <= width {
+        put_str(
+            buf,
+            inner,
+            x + (width - n) / 2,
+            BUS_ROW as i32 - 1,
+            text,
+            Style::new().fg(color).bold(),
+        );
+    }
+}
+
+/// Draws one run of bus cells on a row. A live run shows chevrons that march right.
+fn chevrons(
+    buf: &mut Buffer,
+    inner: Rect,
+    x: i32,
+    width: i32,
+    y: i32,
+    live: Option<Color>,
+    frame: u64,
+) {
+    for i in 0..width {
         let (sym, style) = match live {
-            // Chevrons march right: the phase shifts one cell per frame.
             Some(c) if (i as u64 + frame) % 2 == 1 => ("▸", Style::new().fg(c).bold()),
             Some(c) => ("─", Style::new().fg(c)),
             None => ("─", Style::new().fg(Color::DarkGray).dim()),
         };
-        put(buf, inner, gap.0 + i, row, sym, style);
-    }
-    if let (Some(text), Some(c)) = (label, live) {
-        let n = text.chars().count() as i32;
-        if n <= gap.1 {
-            put_str(buf, inner, gap.0 + (gap.1 - n) / 2, row - 1, text, Style::new().fg(c).bold());
-        }
+        put(buf, inner, x + i, y, sym, style);
     }
 }
 
-/// Clamps a box to the inner area so nothing draws outside the panel.
-fn clip(inner: Rect, x: i32, y: i32, w: i32, h: i32) -> Rect {
-    let x = x.clamp(0, inner.width as i32);
-    let y = y.clamp(0, inner.height as i32);
-    let w = w.min(inner.width as i32 - x).max(0);
-    let h = h.min(inner.height as i32 - y).max(0);
-    Rect::new(inner.x + x as u16, inner.y + y as u16, w as u16, h as u16)
+/// Two-line text fallback for panels too small for boxes. No borders.
+/// Line 1 is the bus. Line 2 hangs the battery below the junction.
+fn compact(f: &mut Frame, inner: Rect, s: &Sample, live: Flows) {
+    let (charger, charger_style) = if s.plugged_in {
+        (
+            format!("⚡ {:.1} W", s.input_w),
+            Style::new().fg(Color::Green).bold(),
+        )
+    } else {
+        ("⚡ unplugged".to_string(), Style::new().fg(Color::DarkGray))
+    };
+    let (batt_color, state, value) = battery_state(s);
+    let link_in = Style::new().fg(if s.plugged_in {
+        Color::Green
+    } else {
+        Color::DarkGray
+    });
+    let link_out = Style::new().fg(if live.battery_to_bus {
+        ORANGE
+    } else {
+        Color::Green
+    });
+    let line = [
+        (charger, charger_style),
+        (" ─▸ ".to_string(), link_in),
+        ("●".to_string(), Style::new().fg(Color::White).bold()),
+        (" ─▸ ".to_string(), link_out),
+        (
+            format!("◆ {:.1} W", s.load_w),
+            Style::new().fg(Color::Yellow).bold(),
+        ),
+    ];
+    let junction = line[0].0.chars().count() as i32 + 4; // column of ● in line 1
+    let width: i32 = line.iter().map(|(t, _)| t.chars().count() as i32).sum();
+    let x0 = (inner.width as i32 - width) / 2;
+    let y0 = (inner.height as i32 - 2).max(0) / 2;
+    let buf = f.buffer_mut();
+    let mut x = x0;
+    for (text, style) in &line {
+        put_str(buf, inner, x, y0, text, *style);
+        x += text.chars().count() as i32;
+    }
+    let branch = format!("▾ ▮ {value} {state}");
+    put_str(
+        buf,
+        inner,
+        x0 + junction,
+        y0 + 1,
+        &branch,
+        Style::new().fg(batt_color).bold(),
+    );
+}
+
+/// Draws one box at a relative rectangle, with its title centred on the top border and body lines centred.
+fn node(f: &mut Frame, inner: Rect, rect: Rect, border: Color, title: &str, lines: Vec<Line>) {
+    let rect = Rect {
+        x: inner.x + rect.x,
+        y: inner.y + rect.y,
+        ..rect
+    };
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(border))
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::new().fg(border).bold(),
+        ))
+        .title_alignment(Alignment::Center);
+    let body = block.inner(rect);
+    f.render_widget(block, rect);
+    let top = body.height.saturating_sub(lines.len() as u16) / 2;
+    let text = Rect {
+        y: body.y + top,
+        height: body.height.min(lines.len() as u16),
+        ..body
+    };
+    f.render_widget(Paragraph::new(lines).centered(), text);
 }
 
 /// Writes one symbol at a cell relative to `inner`, skipping cells outside it.
@@ -201,41 +374,79 @@ mod tests {
 
     #[test]
     fn flows_follow_power_direction() {
-        let charging = Sample { plugged_in: true, battery_w: 3.0, ..Default::default() };
-        let draining = Sample { plugged_in: true, battery_w: -1.5, ..Default::default() };
-        let unplugged = Sample { battery_w: -4.0, ..Default::default() };
+        let charging = Sample {
+            plugged_in: true,
+            battery_w: 3.0,
+            ..Default::default()
+        };
+        let draining = Sample {
+            plugged_in: true,
+            battery_w: -1.5,
+            ..Default::default()
+        };
+        let unplugged = Sample {
+            battery_w: -4.0,
+            ..Default::default()
+        };
         let idle = Sample::default();
-        assert_eq!(flows(&charging), Flows { charger_to_system: true, charger_to_battery: true, battery_to_system: false });
-        assert_eq!(flows(&draining), Flows { charger_to_system: true, charger_to_battery: false, battery_to_system: true });
-        assert_eq!(flows(&unplugged), Flows { charger_to_system: false, charger_to_battery: false, battery_to_system: true });
+        let want = |charger_to_bus, battery_to_bus, bus_to_battery| Flows {
+            charger_to_bus,
+            battery_to_bus,
+            bus_to_battery,
+        };
+        assert_eq!(flows(&charging), want(true, false, true));
+        assert_eq!(flows(&draining), want(true, true, false));
+        assert_eq!(flows(&unplugged), want(false, true, false));
         assert_eq!(flows(&idle), Flows::default());
     }
 
     #[test]
-    fn line_layout_boxes_are_equal_and_disjoint() {
-        for width in [0, 1, 7, 40, 52, 72, 100, 120, 200] {
-            let (c, g1, b, g2, s) = line_layout(width);
-            assert_eq!(c.1, b.1, "width {width}");
-            assert_eq!(b.1, s.1, "width {width}");
-            assert_eq!(g1.1, g2.1, "width {width}");
-            let parts = [c, g1, b, g2, s];
-            let mut end = 0;
-            for (start, len) in parts {
-                assert!(len >= 0, "width {width}");
-                assert!(start >= end, "overlap at width {width}");
-                end = start + len;
+    fn bus_boxes_are_equal_disjoint_and_inside() {
+        for width in [43, 72, 80, 120, 200] {
+            let b = bus_layout(width, INNER_H).expect("fits");
+            assert_eq!(b.charger.width, b.system.width, "width {width}");
+            assert_eq!(b.charger.width, b.battery.width, "width {width}");
+            assert_eq!(b.charger.height, b.battery.height, "width {width}");
+            assert_eq!(b.system.height, b.battery.height, "width {width}");
+            for r in [b.charger, b.system, b.battery] {
+                assert!(
+                    r.right() <= width && r.bottom() <= INNER_H,
+                    "outside at width {width}"
+                );
             }
-            assert!(end <= width, "overflow at width {width}");
+            assert!(
+                !b.charger.intersects(b.system),
+                "charger/system at width {width}"
+            );
+            assert!(
+                !b.charger.intersects(b.battery),
+                "charger/battery at width {width}"
+            );
+            assert!(
+                !b.system.intersects(b.battery),
+                "system/battery at width {width}"
+            );
+            // The junction and its link sit in the gaps, not in a box.
+            assert!(
+                b.charger.right() <= b.junction && b.junction < b.system.x,
+                "junction at width {width}"
+            );
         }
     }
 
     #[test]
-    fn line_layout_fits_common_widths() {
-        for width in [40, 72, 120] {
-            let (c, g1, b, g2, s) = line_layout(width);
-            assert!(g1.1 >= GAP_MIN_W && g2.1 >= GAP_MIN_W, "gaps at width {width}");
-            assert_eq!(c.0, 0, "left margin at width {width}");
-            assert!(s.0 + s.1 <= width && b.0 == g1.0 + g1.1, "layout at width {width}");
+    fn battery_sits_under_junction() {
+        for width in [72, 80, 120] {
+            let b = bus_layout(width, INNER_H).expect("fits");
+            let centre = b.battery.x + b.battery.width / 2;
+            assert!(centre.abs_diff(b.junction) <= 1, "width {width}");
         }
+    }
+
+    #[test]
+    fn bus_layout_needs_room() {
+        assert!(bus_layout(42, INNER_H).is_none());
+        assert!(bus_layout(43, INNER_H - 1).is_none());
+        assert!(bus_layout(43, INNER_H).is_some());
     }
 }

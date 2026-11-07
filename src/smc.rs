@@ -63,7 +63,12 @@ unsafe extern "C" {
     fn IOServiceMatching(name: *const std::ffi::c_char) -> *mut c_void;
     /// Consumes `matching`. Returns 0 when nothing matches.
     fn IOServiceGetMatchingService(main_port: MachPort, matching: *mut c_void) -> u32;
-    fn IOServiceOpen(service: u32, owning_task: MachPort, kind: u32, connect: *mut u32) -> KernReturn;
+    fn IOServiceOpen(
+        service: u32,
+        owning_task: MachPort,
+        kind: u32,
+        connect: *mut u32,
+    ) -> KernReturn;
     fn IOServiceClose(connect: u32) -> KernReturn;
     fn IOObjectRelease(object: u32) -> KernReturn;
     fn IOConnectCallStructMethod(
@@ -108,11 +113,18 @@ impl Smc {
     /// Reads a 4-char key whose type is "flt " (f32, little-endian).
     pub fn read_f32(&self, key: &str) -> Result<f32> {
         let code = key_code(key)?;
-        let info = self.call(KeyData { key: code, data8: CMD_READ_KEY_INFO, ..Default::default() })?;
+        let info = self.call(KeyData {
+            key: code,
+            data8: CMD_READ_KEY_INFO,
+            ..Default::default()
+        })?;
         let size = info.key_info.data_size;
         let out = self.call(KeyData {
             key: code,
-            key_info: KeyInfo { data_size: size, ..Default::default() },
+            key_info: KeyInfo {
+                data_size: size,
+                ..Default::default()
+            },
             data8: CMD_READ_KEY,
             ..Default::default()
         })?;
@@ -156,7 +168,10 @@ impl Drop for Smc {
 
 /// Packs a 4-char ASCII key into the big-endian u32 the SMC expects.
 fn key_code(key: &str) -> Result<u32> {
-    let b: [u8; 4] = key.as_bytes().try_into().map_err(|_| anyhow!("SMC key must be 4 bytes: {key}"))?;
+    let b: [u8; 4] = key
+        .as_bytes()
+        .try_into()
+        .map_err(|_| anyhow!("SMC key must be 4 bytes: {key}"))?;
     Ok(u32::from_be_bytes(b))
 }
 
@@ -165,7 +180,8 @@ fn decode_f32(data_type: u32, bytes: &[u8]) -> Result<f32> {
     if data_type != u32::from_be_bytes(*b"flt ") {
         bail!("unsupported SMC type {:?}", data_type.to_be_bytes());
     }
-    let b = <[u8; 4]>::try_from(bytes).map_err(|_| anyhow!("flt needs 4 bytes, got {}", bytes.len()))?;
+    let b = <[u8; 4]>::try_from(bytes)
+        .map_err(|_| anyhow!("flt needs 4 bytes, got {}", bytes.len()))?;
     Ok(f32::from_le_bytes(b))
 }
 

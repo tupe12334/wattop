@@ -52,7 +52,9 @@ pub fn parse(bytes: &[u8]) -> Result<Sample> {
         .and_then(Value::as_dictionary)
         .ok_or_else(|| anyhow!("no AppleSmartBattery entry (desktop Mac?)"))?;
 
-    let telem = dict.get("PowerTelemetryData").and_then(Value::as_dictionary);
+    let telem = dict
+        .get("PowerTelemetryData")
+        .and_then(Value::as_dictionary);
     let mw = |key: &str| telem.map_or(0.0, |t| int(t, key) as f64 / 1000.0);
     let minutes = int(dict, "TimeRemaining");
     let adapter = dict.get("AdapterDetails").and_then(Value::as_dictionary);
@@ -100,7 +102,11 @@ pub fn apply_live_power(s: &mut Sample, input: Option<f32>, load: Option<f32>) {
 fn adapter_name(a: &Dictionary) -> Option<String> {
     ["Name", "Manufacturer", "Description"]
         .iter()
-        .find_map(|k| a.get(k).and_then(Value::as_string).filter(|s| !s.is_empty()))
+        .find_map(|k| {
+            a.get(k)
+                .and_then(Value::as_string)
+                .filter(|s| !s.is_empty())
+        })
         .map(str::to_owned)
         .or_else(|| (int(a, "Watts") > 0).then(|| format!("{} W USB-C charger", int(a, "Watts"))))
 }
@@ -115,7 +121,8 @@ pub fn read_ports() -> Result<Vec<String>> {
 }
 
 pub fn parse_ports(bytes: &[u8]) -> Result<Vec<String>> {
-    let root = Value::from_reader(std::io::Cursor::new(bytes)).context("parse ioreg ports plist")?;
+    let root =
+        Value::from_reader(std::io::Cursor::new(bytes)).context("parse ioreg ports plist")?;
     let Some(list) = root.as_array() else {
         return Ok(Vec::new());
     };
@@ -142,7 +149,9 @@ fn pretty_port(raw: &str) -> Option<String> {
 
 fn int(d: &Dictionary, key: &str) -> i64 {
     match d.get(key) {
-        Some(Value::Integer(i)) => i.as_signed().unwrap_or_else(|| i.as_unsigned().unwrap_or(0) as i64),
+        Some(Value::Integer(i)) => i
+            .as_signed()
+            .unwrap_or_else(|| i.as_unsigned().unwrap_or(0) as i64),
         _ => 0,
     }
 }
@@ -203,7 +212,14 @@ mod tests {
 
     #[test]
     fn live_power_needs_a_valid_pair() {
-        let mut s = Sample { plugged_in: true, adapter_watts: 60, input_w: 1.0, load_w: 2.0, battery_w: -1.0, ..Default::default() };
+        let mut s = Sample {
+            plugged_in: true,
+            adapter_watts: 60,
+            input_w: 1.0,
+            load_w: 2.0,
+            battery_w: -1.0,
+            ..Default::default()
+        };
         apply_live_power(&mut s, Some(58.5), Some(-30.7)); // negative load: rejected
         assert_eq!(s.load_w, 2.0);
         apply_live_power(&mut s, Some(0.0), Some(35.0)); // 0 W on a 60 W charger: rejected
@@ -214,6 +230,9 @@ mod tests {
 
     #[test]
     fn parses_only_active_power_ports() {
-        assert_eq!(parse_ports(PORTS.as_bytes()).unwrap(), vec!["USB-C port 2".to_string()]);
+        assert_eq!(
+            parse_ports(PORTS.as_bytes()).unwrap(),
+            vec!["USB-C port 2".to_string()]
+        );
     }
 }

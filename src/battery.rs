@@ -34,8 +34,15 @@ pub fn filled_cells(width: usize, percent: i64) -> usize {
 /// Draining: starts at the fill edge and sweeps left, toward the start.
 pub fn battery_cells(width: usize, percent: i64, motion: Motion, frame: u64) -> Vec<CellKind> {
     let filled = filled_cells(width, percent);
-    let mut cells: Vec<CellKind> =
-        (0..width).map(|i| if i < filled { CellKind::Filled } else { CellKind::Empty }).collect();
+    let mut cells: Vec<CellKind> = (0..width)
+        .map(|i| {
+            if i < filled {
+                CellKind::Filled
+            } else {
+                CellKind::Empty
+            }
+        })
+        .collect();
     match motion {
         Motion::Charging if filled < width => {
             let span = (width - filled) as u64;
@@ -70,7 +77,10 @@ mod tests {
             let (b, _) = pulse(&battery_cells(w, p, Motion::Charging, n + 1)).unwrap();
             assert_eq!(kind, CellKind::ChargePulse);
             assert!(a >= filled && a < w, "pulse {a} left the empty part");
-            assert!(b == a + 1 || (a == w - 1 && b == filled), "pulse jumped {a} -> {b}");
+            assert!(
+                b == a + 1 || (a == w - 1 && b == filled),
+                "pulse jumped {a} -> {b}"
+            );
         }
     }
 
@@ -83,7 +93,10 @@ mod tests {
             let (b, _) = pulse(&battery_cells(w, p, Motion::Draining, n + 1)).unwrap();
             assert_eq!(kind, CellKind::DrainPulse);
             assert!(a < filled, "pulse {a} left the filled part");
-            assert!(b + 1 == a || (a == 0 && b == filled - 1), "pulse jumped {a} -> {b}");
+            assert!(
+                b + 1 == a || (a == 0 && b == filled - 1),
+                "pulse jumped {a} -> {b}"
+            );
         }
     }
 
@@ -118,6 +131,9 @@ mod tests {
         assert!(pulse(&battery_cells(12, 100, Motion::Charging, 3)).is_none());
         assert!(pulse(&battery_cells(12, 0, Motion::Draining, 3)).is_none());
         // Empty battery charging: the pulse starts at the first cell.
-        assert_eq!(pulse(&battery_cells(12, 0, Motion::Charging, 0)), Some((0, CellKind::ChargePulse)));
+        assert_eq!(
+            pulse(&battery_cells(12, 0, Motion::Charging, 0)),
+            Some((0, CellKind::ChargePulse))
+        );
     }
 }

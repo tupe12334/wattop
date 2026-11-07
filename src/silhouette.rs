@@ -31,10 +31,34 @@ pub struct PortPos {
 /// Power-capable ports per model. Only verified layouts are listed. Never guess.
 /// Non-power ports (HDMI, SD, audio) are left out on purpose.
 const MAC16_1: &[PortPos] = &[
-    PortPos { name: "MagSafe", short: "MagSafe", side: Side::Left, slot: 1, slots: 4 },
-    PortPos { name: "USB-C port 2", short: "USB-C 2", side: Side::Left, slot: 2, slots: 4 },
-    PortPos { name: "USB-C port 1", short: "USB-C 1", side: Side::Left, slot: 3, slots: 4 },
-    PortPos { name: "USB-C port 4", short: "USB-C 4", side: Side::Right, slot: 2, slots: 3 },
+    PortPos {
+        name: "MagSafe",
+        short: "MagSafe",
+        side: Side::Left,
+        slot: 1,
+        slots: 4,
+    },
+    PortPos {
+        name: "USB-C port 2",
+        short: "USB-C 2",
+        side: Side::Left,
+        slot: 2,
+        slots: 4,
+    },
+    PortPos {
+        name: "USB-C port 1",
+        short: "USB-C 1",
+        side: Side::Left,
+        slot: 3,
+        slots: 4,
+    },
+    PortPos {
+        name: "USB-C port 4",
+        short: "USB-C 4",
+        side: Side::Right,
+        slot: 2,
+        slots: 3,
+    },
 ];
 
 /// Port table for a `hw.model` id. None when the layout is not verified.
@@ -67,8 +91,15 @@ fn row(p: &PortPos) -> i32 {
 }
 
 pub fn draw(f: &mut Frame, area: Rect, s: &Sample, ports: Option<&'static [PortPos]>) {
-    let watts = if s.plugged_in { format!(" in {:.1} W ", s.input_w) } else { " on battery ".into() };
-    let block = panel("ports").title_bottom(Span::styled(watts, Style::new().fg(Color::LightGreen).bold()));
+    let watts = if s.plugged_in {
+        format!(" in {:.1} W ", s.input_w)
+    } else {
+        " on battery ".into()
+    };
+    let block = panel("ports").title_bottom(Span::styled(
+        watts,
+        Style::new().fg(Color::LightGreen).bold(),
+    ));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -84,7 +115,10 @@ fn list(f: &mut Frame, inner: Rect, s: &Sample) {
     let lines: Vec<Line> = if s.power_ports.is_empty() {
         vec![Line::from("no power port".dark_gray())]
     } else {
-        s.power_ports.iter().map(|p| Line::from(p.clone()).light_green().bold()).collect()
+        s.power_ports
+            .iter()
+            .map(|p| Line::from(p.clone()).light_green().bold())
+            .collect()
     };
     f.render_widget(Paragraph::new(lines), inner);
 }
@@ -98,13 +132,13 @@ fn outline(f: &mut Frame, inner: Rect, s: &Sample, ports: &[PortPos]) {
     let buf = f.buffer_mut();
 
     let body = [
-        format!("╭{:─^10}╮", "back"),
+        "╭──────────╮".to_string(),
         "│▪▪▪▪▪▪▪▪▪▪│".to_string(),
         "│▪▪▪▪▪▪▪▪▪▪│".to_string(),
-        "│  ┌────┐  │".to_string(),
-        "│  └────┘  │".to_string(),
+        "│   ┌──┐   │".to_string(),
+        "│   └──┘   │".to_string(),
         "│          │".to_string(),
-        format!("╰{:─^10}╯", "front"),
+        "╰──────────╯".to_string(),
     ];
     for (y, line) in body.iter().enumerate() {
         for (x, ch) in line.chars().enumerate() {
@@ -115,7 +149,11 @@ fn outline(f: &mut Frame, inner: Rect, s: &Sample, ports: &[PortPos]) {
     for p in ports {
         let y = row(p);
         let on = s.power_ports.iter().any(|n| n == p.name);
-        let style = if on { Style::new().fg(Color::LightGreen).bold() } else { dim };
+        let style = if on {
+            Style::new().fg(Color::LightGreen).bold()
+        } else {
+            dim
+        };
         let notch = if p.side == Side::Left { "▐" } else { "▌" };
         let edge = if p.side == Side::Left { bx } else { rb };
         flow::put(buf, inner, edge, y, notch, style);
@@ -161,7 +199,9 @@ mod tests {
         let ports = layout("Mac16,1").unwrap();
         assert_eq!(ports.len(), 4);
         assert!(
-            ports.iter().all(|p| p.name == "MagSafe" || p.name.starts_with("USB-C")),
+            ports
+                .iter()
+                .all(|p| p.name == "MagSafe" || p.name.starts_with("USB-C")),
             "non-power port in layout: {ports:?}"
         );
     }

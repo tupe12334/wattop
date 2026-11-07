@@ -80,19 +80,31 @@ fn panel(title: &str) -> Block<'_> {
     Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(Color::DarkGray))
-        .title(Span::styled(format!(" {title} "), Style::new().fg(Color::Cyan).bold()))
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::new().fg(Color::Cyan).bold(),
+        ))
 }
 
-/// Row heights for flow, status, chart, procs. Flow is one line of boxes (7 rows with border),
-/// then the chart keeps at least 8 rows. Procs (0 rows) hide when there is no room.
+/// Row heights for flow, status, chart, procs. Flow takes the bus layout when there is room,
+/// else two text lines. Then the chart keeps at least 8 rows. Procs (0 rows) hide when there is no room.
 fn heights(total: u16) -> [u16; 4] {
-    const FLOW: u16 = 7;
+    const COMPACT_FLOW: u16 = 4; // two text lines, borders included
     const STATUS: u16 = 9;
     const CHART_MIN: u16 = 8;
     const PROCS_MIN: u16 = 5;
-    let flow = FLOW.min(total.saturating_sub(STATUS + CHART_MIN));
+    let room = total.saturating_sub(STATUS + CHART_MIN);
+    let flow = if room >= flow::PANEL_H {
+        flow::PANEL_H
+    } else {
+        COMPACT_FLOW.min(room)
+    };
     let below = total.saturating_sub(flow + STATUS);
-    let procs = if below >= CHART_MIN + PROCS_MIN { (below * 2 / 5).max(PROCS_MIN) } else { 0 };
+    let procs = if below >= CHART_MIN + PROCS_MIN {
+        (below * 2 / 5).max(PROCS_MIN)
+    } else {
+        0
+    };
     [flow, STATUS, below - procs, procs]
 }
 
@@ -136,10 +148,18 @@ fn cell_span(kind: battery::CellKind, color: Color) -> Span<'static> {
     }
 }
 
-fn draw_status(f: &mut Frame, area: Rect, s: &Sample, ports: Option<&'static [silhouette::PortPos]>, frame: u64) {
-    let [ports_area, rest] = Layout::horizontal([Constraint::Length(38), Constraint::Min(0)]).areas(area);
+fn draw_status(
+    f: &mut Frame,
+    area: Rect,
+    s: &Sample,
+    ports: Option<&'static [silhouette::PortPos]>,
+    frame: u64,
+) {
+    let [ports_area, rest] =
+        Layout::horizontal([Constraint::Length(38), Constraint::Min(0)]).areas(area);
     silhouette::draw(f, ports_area, s, ports);
-    let [cell, readouts] = Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).areas(rest);
+    let [cell, readouts] =
+        Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).areas(rest);
 
     let percent = s.percent.clamp(0, 100);
     let color = level_color(percent);
@@ -156,21 +176,41 @@ fn draw_status(f: &mut Frame, area: Rect, s: &Sample, ports: Option<&'static [si
     let cells = battery::body_cells(inner.width as usize);
     let border = Style::new().fg(Color::DarkGray);
     let mut body = vec![Span::styled("│", border)];
-    body.extend(battery::battery_cells(cells, percent, motion, frame).into_iter().map(|k| cell_span(k, color)));
+    body.extend(
+        battery::battery_cells(cells, percent, motion, frame)
+            .into_iter()
+            .map(|k| cell_span(k, color)),
+    );
     body.push(Span::styled("│▌", border));
     let cell_lines = vec![
         Line::from(Span::styled(format!("┌{}┐", "─".repeat(cells)), border)),
         Line::from(body),
         Line::from(Span::styled(format!("└{}┘", "─".repeat(cells)), border)),
-        Line::from(Span::styled(format!("{percent}%"), Style::new().fg(color).bold())),
+        Line::from(Span::styled(
+            format!("{percent}%"),
+            Style::new().fg(color).bold(),
+        )),
         Line::from(Span::styled(word, Style::new().fg(word_color).bold())),
-        Line::from(Span::styled(flow::signed_w(s.battery_w), Style::new().fg(word_color))),
+        Line::from(Span::styled(
+            flow::signed_w(s.battery_w),
+            Style::new().fg(word_color),
+        )),
     ];
     f.render_widget(Paragraph::new(cell_lines).block(block), cell);
 
-    let net_color = if s.battery_w >= 0.0 { Color::Green } else { Color::Red };
-    let eta = s.minutes_left.map_or("—".into(), |m| format!("{}h {:02}m", m / 60, m % 60));
-    let rating = if s.plugged_in { format!("{} W", s.adapter_watts) } else { "—".into() };
+    let net_color = if s.battery_w >= 0.0 {
+        Color::Green
+    } else {
+        Color::Red
+    };
+    let eta = s
+        .minutes_left
+        .map_or("—".into(), |m| format!("{}h {:02}m", m / 60, m % 60));
+    let rating = if s.plugged_in {
+        format!("{} W", s.adapter_watts)
+    } else {
+        "—".into()
+    };
     let kv = |k: &str, v: String, c: Color| {
         Line::from(vec![
             Span::styled(format!("{k:<15}"), Style::new().fg(Color::DarkGray)),
@@ -180,8 +220,15 @@ fn draw_status(f: &mut Frame, area: Rect, s: &Sample, ports: Option<&'static [si
     let source = if !s.plugged_in {
         "—".to_string()
     } else {
-        let port = if s.power_ports.is_empty() { "no port".to_string() } else { s.power_ports.join(" + ") };
-        format!("{port} · {}", s.charger_name.as_deref().unwrap_or("unknown adapter"))
+        let port = if s.power_ports.is_empty() {
+            "no port".to_string()
+        } else {
+            s.power_ports.join(" + ")
+        };
+        format!(
+            "{port} · {}",
+            s.charger_name.as_deref().unwrap_or("unknown adapter")
+        )
     };
     let lines = vec![
         kv("Input", format!("{:.1} W", s.input_w), Color::Green),
@@ -195,24 +242,36 @@ fn draw_status(f: &mut Frame, area: Rect, s: &Sample, ports: Option<&'static [si
 
     let verdict = if s.plugged_in && s.input_w < s.load_w {
         Span::styled(
-            format!(" Charger too weak: −{:.1} W from battery ", s.load_w - s.input_w),
+            format!(
+                " Charger too weak: −{:.1} W from battery ",
+                s.load_w - s.input_w
+            ),
             Style::new().fg(Color::Red).bold(),
         )
     } else if s.battery_w > flow::EPS_W {
-        Span::styled(format!(" Charging at {:.1} W ", s.battery_w), Style::new().fg(Color::Green).bold())
+        Span::styled(
+            format!(" Charging at {:.1} W ", s.battery_w),
+            Style::new().fg(Color::Green).bold(),
+        )
     } else if !s.plugged_in {
         Span::styled(" On battery ", Style::new().fg(Color::Yellow).bold())
     } else {
         Span::raw("")
     };
-    f.render_widget(Paragraph::new(lines).block(panel("power").title_bottom(verdict)), readouts);
+    f.render_widget(
+        Paragraph::new(lines).block(panel("power").title_bottom(verdict)),
+        readouts,
+    );
 }
 
 fn draw_chart(f: &mut Frame, area: Rect, h: &VecDeque<Sample>) {
     // Right-align: the newest sample sits at the right edge.
     let x0 = HISTORY.saturating_sub(h.len());
     let series = |pick: fn(&Sample) -> f64| -> Vec<(f64, f64)> {
-        h.iter().enumerate().map(|(i, s)| ((x0 + i) as f64, pick(s))).collect()
+        h.iter()
+            .enumerate()
+            .map(|(i, s)| ((x0 + i) as f64, pick(s)))
+            .collect()
     };
     let input = series(|s| s.input_w);
     let load = series(|s| s.load_w);
@@ -225,36 +284,77 @@ fn draw_chart(f: &mut Frame, area: Rect, h: &VecDeque<Sample>) {
 
     let mut datasets = Vec::new();
     if lo < 0.0 {
-        datasets.push(Dataset::default().name("0 W").marker(Marker::Braille).graph_type(GraphType::Line).fg(Color::DarkGray).data(&zero));
+        datasets.push(
+            Dataset::default()
+                .name("0 W")
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .fg(Color::DarkGray)
+                .data(&zero),
+        );
     }
     datasets.extend([
-        Dataset::default().name("in").marker(Marker::Braille).graph_type(GraphType::Line).style(Style::new().fg(Color::LightGreen).bold()).data(&input),
-        Dataset::default().name("load").marker(Marker::Braille).graph_type(GraphType::Line).style(Style::new().fg(Color::LightYellow).bold()).data(&load),
-        Dataset::default().name("battery").marker(Marker::Braille).graph_type(GraphType::Line).style(Style::new().fg(Color::LightMagenta).bold()).data(&batt),
+        Dataset::default()
+            .name("in")
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::new().fg(Color::LightGreen).bold())
+            .data(&input),
+        Dataset::default()
+            .name("load")
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::new().fg(Color::LightYellow).bold())
+            .data(&load),
+        Dataset::default()
+            .name("battery")
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::new().fg(Color::LightMagenta).bold())
+            .data(&batt),
     ]);
 
     let label = |v: f64| Span::styled(format!("{v:.0}W"), Style::new().fg(Color::DarkGray));
     // Colour key in the title: always visible, unlike the ratatui legend.
-    let key = |c: Color, text: String| Span::styled(format!("━━ {text}  "), Style::new().fg(c).bold());
+    let key =
+        |c: Color, text: String| Span::styled(format!("━━ {text}  "), Style::new().fg(c).bold());
     let mut title = vec![Span::raw(" ")];
     if let Some(s) = h.back() {
         title.extend([
             key(Color::LightGreen, format!("Input {:.1} W", s.input_w)),
             key(Color::LightYellow, format!("Load {:.1} W", s.load_w)),
-            key(Color::LightMagenta, format!("Battery {}", flow::signed_w(s.battery_w))),
+            key(
+                Color::LightMagenta,
+                format!("Battery {}", flow::signed_w(s.battery_w)),
+            ),
         ]);
     }
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(Color::DarkGray))
         .title(Line::from(title))
-        .title_bottom(Span::styled(" q to quit ", Style::new().fg(Color::DarkGray)));
+        .title_bottom(Span::styled(
+            " q to quit ",
+            Style::new().fg(Color::DarkGray),
+        ));
     f.render_widget(
         Chart::new(datasets)
             .legend_position(None)
             .block(block)
-            .x_axis(Axis::default().bounds([0.0, (HISTORY - 1) as f64]).labels(vec![Line::from("-5m"), Line::from("-2m30s"), Line::from("now")]))
-            .y_axis(Axis::default().bounds([lo, hi]).labels(vec![label(lo), label((lo + hi) / 2.0), label(hi)])),
+            .x_axis(
+                Axis::default()
+                    .bounds([0.0, (HISTORY - 1) as f64])
+                    .labels(vec![
+                        Line::from("-5m"),
+                        Line::from("-2m30s"),
+                        Line::from("now"),
+                    ]),
+            )
+            .y_axis(Axis::default().bounds([lo, hi]).labels(vec![
+                label(lo),
+                label((lo + hi) / 2.0),
+                label(hi),
+            ])),
         area,
     );
 }
@@ -262,20 +362,41 @@ fn draw_chart(f: &mut Frame, area: Rect, h: &VecDeque<Sample>) {
 fn draw_procs(f: &mut Frame, area: Rect, sys: &System) {
     let mut procs: Vec<_> = sys.processes().values().collect();
     procs.sort_by(|a, b| b.cpu_usage().total_cmp(&a.cpu_usage()));
-    let rows = procs.iter().take(area.height.saturating_sub(3).min(5) as usize).map(|p| {
-        let cpu = p.cpu_usage();
-        let c = if cpu > 50.0 { Color::Red } else if cpu > 15.0 { Color::Yellow } else { Color::White };
-        Row::new(vec![
-            Cell::from(p.pid().to_string()).fg(Color::DarkGray),
-            Cell::from(p.name().to_string_lossy().into_owned()),
-            Cell::from(format!("{cpu:6.1}%")).fg(c),
-            Cell::from(format!("{} MB", p.memory() / 1_048_576)).fg(Color::DarkGray),
-        ])
-    });
+    let rows = procs
+        .iter()
+        .take(area.height.saturating_sub(3).min(5) as usize)
+        .map(|p| {
+            let cpu = p.cpu_usage();
+            let c = if cpu > 50.0 {
+                Color::Red
+            } else if cpu > 15.0 {
+                Color::Yellow
+            } else {
+                Color::White
+            };
+            Row::new(vec![
+                Cell::from(p.pid().to_string()).fg(Color::DarkGray),
+                Cell::from(p.name().to_string_lossy().into_owned()),
+                Cell::from(format!("{cpu:6.1}%")).fg(c),
+                Cell::from(format!("{} MB", p.memory() / 1_048_576)).fg(Color::DarkGray),
+            ])
+        });
     f.render_widget(
-        Table::new(rows, [Constraint::Length(8), Constraint::Min(20), Constraint::Length(9), Constraint::Length(10)])
-            .header(Row::new(["pid", "process", "cpu", "mem"]).fg(Color::Cyan).bold())
-            .block(panel("top power users (cpu)")),
+        Table::new(
+            rows,
+            [
+                Constraint::Length(8),
+                Constraint::Min(20),
+                Constraint::Length(9),
+                Constraint::Length(10),
+            ],
+        )
+        .header(
+            Row::new(["pid", "process", "cpu", "mem"])
+                .fg(Color::Cyan)
+                .bold(),
+        )
+        .block(panel("top power users (cpu)")),
         area,
     );
 }
@@ -285,11 +406,11 @@ mod tests {
     use super::heights;
 
     #[test]
-    fn flow_is_seven_rows_and_chart_keeps_room() {
-        let [flow, status, chart, procs] = heights(28);
-        assert_eq!((flow, status, chart, procs), (7, 9, 12, 0));
+    fn flow_takes_bus_rows_when_room_else_two_lines() {
+        assert_eq!(heights(29), [12, 9, 8, 0]);
+        assert_eq!(heights(28)[0], 4);
         assert!(heights(24)[2] >= 8);
-        assert_eq!(heights(60)[0], 7);
+        assert_eq!(heights(60)[0], 12);
         assert_eq!(heights(60).iter().sum::<u16>(), 60);
     }
 }
