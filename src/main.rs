@@ -1,3 +1,4 @@
+mod battery;
 mod flow;
 mod silhouette;
 
@@ -107,7 +108,7 @@ fn draw(f: &mut Frame, app: &App, frame: u64) {
     match &app.last {
         Ok(s) => {
             flow::draw(f, top, s, frame);
-            draw_status(f, status, s, app.ports);
+            draw_status(f, status, s, app.ports, frame);
         }
         Err(e) => f.render_widget(Paragraph::new(e.as_str()).red().block(panel("wattop")), top),
     }
@@ -125,28 +126,46 @@ fn level_color(percent: i64) -> Color {
     }
 }
 
-fn draw_status(f: &mut Frame, area: Rect, s: &Sample, ports: Option<&'static [silhouette::PortPos]>) {
+fn cell_span(kind: battery::CellKind, color: Color) -> Span<'static> {
+    match kind {
+        battery::CellKind::Filled => Span::styled("█", Style::new().fg(color)),
+        battery::CellKind::Empty => Span::styled("░", Style::new().fg(Color::DarkGray)),
+        battery::CellKind::ChargePulse => Span::styled("▓", Style::new().fg(Color::Green)),
+        battery::CellKind::DrainPulse => Span::styled("▓", Style::new().fg(flow::ORANGE)),
+    }
+}
+
+fn draw_status(f: &mut Frame, area: Rect, s: &Sample, ports: Option<&'static [silhouette::PortPos]>, frame: u64) {
     let [ports_area, rest] = Layout::horizontal([Constraint::Length(38), Constraint::Min(0)]).areas(area);
     silhouette::draw(f, ports_area, s, ports);
     let [cell, readouts] = Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).areas(rest);
 
     let percent = s.percent.clamp(0, 100);
     let color = level_color(percent);
-    let filled = (percent as usize).div_ceil(10);
-    let bar: String = (0..10).map(|i| if i < filled { '▰' } else { '▱' }).collect();
-    let (word, word_color) = if s.plugged_in && s.battery_w.abs() <= flow::EPS_W {
-        ("HOLDING", Color::Cyan)
+    let (motion, word, word_color) = if s.plugged_in && s.battery_w.abs() <= flow::EPS_W {
+        (battery::Motion::Holding, "HOLDING", Color::Cyan)
     } else if s.battery_w > flow::EPS_W {
-        ("CHARGING", Color::Green)
+        (battery::Motion::Charging, "CHARGING", Color::Green)
     } else {
-        ("DISCHARGING", Color::Red)
+        (battery::Motion::Draining, "DISCHARGING", Color::Red)
     };
+    // Battery body: cells + 2 borders + 1 nub column, sized to the panel's inner width.
+    let block = panel("battery");
+    let inner = block.inner(cell);
+    let cells = battery::body_cells(inner.width as usize);
+    let border = Style::new().fg(Color::DarkGray);
+    let mut body = vec![Span::styled("│", border)];
+    body.extend(battery::battery_cells(cells, percent, motion, frame).into_iter().map(|k| cell_span(k, color)));
+    body.push(Span::styled("│▌", border));
     let cell_lines = vec![
-        Line::from(Span::styled(bar, Style::new().fg(color))),
+        Line::from(Span::styled(format!("┌{}┐", "─".repeat(cells)), border)),
+        Line::from(body),
+        Line::from(Span::styled(format!("└{}┘", "─".repeat(cells)), border)),
         Line::from(Span::styled(format!("{percent}%"), Style::new().fg(color).bold())),
         Line::from(Span::styled(word, Style::new().fg(word_color).bold())),
+        Line::from(Span::styled(flow::signed_w(s.battery_w), Style::new().fg(word_color))),
     ];
-    f.render_widget(Paragraph::new(cell_lines).block(panel("battery")), cell);
+    f.render_widget(Paragraph::new(cell_lines).block(block), cell);
 
     let net_color = if s.battery_w >= 0.0 { Color::Green } else { Color::Red };
     let eta = s.minutes_left.map_or("—".into(), |m| format!("{}h {:02}m", m / 60, m % 60));

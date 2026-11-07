@@ -13,7 +13,7 @@ use ratatui::{
 
 /// Battery watts within this band count as holding.
 pub const EPS_W: f64 = 0.05;
-const ORANGE: Color = Color::Rgb(255, 140, 0);
+pub const ORANGE: Color = Color::Rgb(255, 140, 0);
 const NODE_H: i32 = 5;
 const MID: i32 = NODE_H / 2; // row where lines meet a node
 
