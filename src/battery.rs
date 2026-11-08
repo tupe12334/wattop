@@ -1,12 +1,6 @@
 //! Battery segment model: fill level plus a pulse that runs while charging or draining.
 
-/// Battery motion, from the battery watts sign.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Motion {
-    Charging,
-    Draining,
-    Holding,
-}
+pub use wattop::telemetry::Motion;
 
 /// What one battery segment shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

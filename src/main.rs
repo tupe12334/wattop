@@ -174,12 +174,11 @@ fn draw_status(
 
     let percent = s.percent.clamp(0, 100);
     let color = level_color(percent);
-    let (motion, word, word_color) = if s.plugged_in && s.battery_w.abs() <= flow::EPS_W {
-        (battery::Motion::Holding, "HOLDING", Color::Cyan)
-    } else if s.battery_w > flow::EPS_W {
-        (battery::Motion::Charging, "CHARGING", Color::Green)
-    } else {
-        (battery::Motion::Draining, "DISCHARGING", Color::Red)
+    let motion = s.motion();
+    let (word, word_color) = match motion {
+        battery::Motion::Holding => ("HOLDING", Color::Cyan),
+        battery::Motion::Charging => ("CHARGING", Color::Green),
+        battery::Motion::Draining => ("DISCHARGING", Color::Red),
     };
     // Segment row: segments + 1 nub column, sized to the panel's inner width.
     let block = panel("battery");
@@ -267,7 +266,7 @@ fn draw_status(
             ),
             Style::new().fg(Color::Red).bold(),
         )
-    } else if s.battery_w > flow::EPS_W {
+    } else if s.motion() == battery::Motion::Charging {
         Span::styled(
             format!(" Charging at {:.1} W ", s.battery_w),
             Style::new().fg(Color::Green).bold(),

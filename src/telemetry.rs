@@ -10,6 +10,8 @@ pub struct Sample {
     pub percent: i64,
     pub charging: bool,
     pub plugged_in: bool,
+    /// macOS considers the battery full (it pauses charging until the level drops).
+    pub fully_charged: bool,
     /// Charger rating in watts (0 when unplugged or unknown).
     pub adapter_watts: i64,
     /// Watts flowing in from the charger.
@@ -33,6 +35,34 @@ pub struct Sample {
     pub power_ports: Vec<String>,
     /// macOS Low Power Mode on the current power source, None when unknown.
     pub low_power: Option<bool>,
+}
+
+/// Battery watts within this band count as holding.
+pub const EPS_W: f64 = 0.05;
+
+/// Which way the battery is going, as the UI shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Motion {
+    Charging,
+    Draining,
+    Holding,
+}
+
+impl Sample {
+    /// Battery motion. A full battery on a charger counts as holding: macOS lets it
+    /// cover load peaks and then tops it up, so the raw watts sign flips every few seconds.
+    pub fn motion(&self) -> Motion {
+        let full = self.fully_charged || self.percent >= 100;
+        if self.plugged_in && (full || self.battery_w.abs() <= EPS_W) {
+            Motion::Holding
+        } else if self.battery_w > EPS_W {
+            Motion::Charging
+        } else if self.battery_w < -EPS_W {
+            Motion::Draining
+        } else {
+            Motion::Holding
+        }
+    }
 }
 
 pub fn read() -> Result<Sample> {
@@ -83,6 +113,7 @@ pub fn parse(bytes: &[u8]) -> Result<Sample> {
         percent: int(dict, "CurrentCapacity"),
         charging: bool_(dict, "IsCharging"),
         plugged_in: bool_(dict, "ExternalConnected"),
+        fully_charged: bool_(dict, "FullyCharged"),
         adapter_watts: adapter.map_or(0, |a| int(a, "Watts")),
         input_w: mw("SystemPowerIn"),
         load_w: mw("SystemLoad"),
@@ -229,6 +260,27 @@ mod tests {
         assert!((s.charger_volts - 9.0).abs() < 1e-9);
         assert!((s.charger_amps - 2.22).abs() < 1e-9);
         assert_eq!(s.power_sources, 2);
+    }
+
+    #[test]
+    fn full_battery_on_charger_holds() {
+        let s = |percent, plugged_in, battery_w| Sample {
+            percent,
+            plugged_in,
+            battery_w,
+            ..Default::default()
+        };
+        assert_eq!(s(100, true, -1.5).motion(), Motion::Holding);
+        assert_eq!(s(100, true, 0.8).motion(), Motion::Holding);
+        assert_eq!(s(100, false, -1.5).motion(), Motion::Draining);
+        assert_eq!(s(80, true, 12.0).motion(), Motion::Charging);
+        assert_eq!(s(80, true, -1.5).motion(), Motion::Draining);
+        assert_eq!(s(80, true, 0.0).motion(), Motion::Holding);
+        let flagged = Sample {
+            fully_charged: true,
+            ..s(99, true, 0.6)
+        };
+        assert_eq!(flagged.motion(), Motion::Holding);
     }
 
     #[test]

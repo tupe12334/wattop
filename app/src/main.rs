@@ -13,7 +13,10 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-use wattop::{smc, telemetry::Sample};
+use wattop::{
+    smc,
+    telemetry::{Motion, Sample},
+};
 
 mod cli_link;
 
@@ -65,8 +68,11 @@ impl Stat {
         match self {
             Stat::Input => format!("⚡{:.0}W", s.input_w),
             Stat::Load => format!("◆{:.0}W", s.load_w),
-            Stat::BatteryNet if s.battery_w > 0.0 => format!("▲{:.0}W", s.battery_w),
-            Stat::BatteryNet => format!("▼{:.0}W", -s.battery_w),
+            Stat::BatteryNet => match s.motion() {
+                Motion::Charging => format!("▲{:.0}W", s.battery_w),
+                Motion::Draining => format!("▼{:.0}W", -s.battery_w),
+                Motion::Holding => "■0W".into(),
+            },
             Stat::BatteryPct => format!("{}%", s.percent),
             Stat::Charger if !s.plugged_in => "🔋".into(),
             Stat::Charger => s
@@ -117,12 +123,10 @@ fn info_lines(r: &Result<Sample, String>) -> [String; 5] {
         Some(false) => "Off",
         None => "—",
     };
-    let word = if s.battery_w > 0.0 {
-        "charging"
-    } else if s.battery_w < 0.0 {
-        "draining"
-    } else {
-        "holding"
+    let word = match s.motion() {
+        Motion::Charging => "charging",
+        Motion::Draining => "draining",
+        Motion::Holding => "holding",
     };
     let source = if s.plugged_in {
         let port = s.power_ports.first().map_or("no port", String::as_str);

@@ -9,10 +9,8 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, Paragraph},
 };
-use wattop::telemetry::Sample;
-
-/// Battery watts within this band count as holding.
-pub const EPS_W: f64 = 0.05;
+pub use wattop::telemetry::EPS_W;
+use wattop::telemetry::{Motion, Sample};
 pub const ORANGE: Color = Color::Rgb(255, 140, 0);
 const BOX_H: u16 = 5; // box height, borders included
 const BOX_W: u16 = 15; // odd, so BATTERY centres exactly under the junction
@@ -80,12 +78,10 @@ fn bus_layout(width: u16, height: u16) -> Option<BusRects> {
 
 /// Battery colour, state word and value text.
 fn battery_state(s: &Sample) -> (Color, &'static str, String) {
-    if s.battery_w > EPS_W {
-        (Color::Green, "▲ charging", signed_w(s.battery_w))
-    } else if s.battery_w < -EPS_W {
-        (ORANGE, "▼ draining", signed_w(s.battery_w))
-    } else {
-        (Color::Cyan, "■ holding", "0.0 W".to_string())
+    match s.motion() {
+        Motion::Charging => (Color::Green, "▲ charging", signed_w(s.battery_w)),
+        Motion::Draining => (ORANGE, "▼ draining", signed_w(s.battery_w)),
+        Motion::Holding => (Color::Cyan, "■ holding", signed_w(s.battery_w)),
     }
 }
 
