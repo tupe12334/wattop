@@ -35,3 +35,23 @@ jobs:
         run: cargo test --workspace
       - name: Publish dry run
         run: cargo publish --dry-run -p wattop
+
+  linecheck:
+    name: Line counts (linecheck)
+    runs-on: ubuntu-latest
+    env:
+      LINECHECK_VERSION: v1.2.2
+      LINECHECK_TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install linecheck (pinned release binary)
+        run: |
+          ARCHIVE="linecheck-$LINECHECK_VERSION-$LINECHECK_TARGET.tar.gz"
+          BASE="https://github.com/tupe12334/linecheck/releases/download/$LINECHECK_VERSION/$ARCHIVE"
+          curl -fsSLO "$BASE"
+          curl -fsSLO "$BASE.sha256"
+          sha256sum -c "$ARCHIVE.sha256"
+          tar xzf "$ARCHIVE"
+          sudo install "linecheck-$LINECHECK_VERSION-$LINECHECK_TARGET/linecheck" /usr/local/bin/
+      - name: Run linecheck
+        run: linecheck .

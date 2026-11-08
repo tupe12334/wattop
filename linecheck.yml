@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/tupe12334/linecheck/main/schema/linecheck.schema.json
+
+# Based on the linecheck --default preset (warn 200 / error 400).
+# The Rust error threshold starts at 500 because three files are already
+# above 400 lines (src/main.rs, src/flow.rs, app/src/main.rs). Lower it to
+# 400 once those files are split.
+rules:
+  - pattern: "**/*.rs"
+    warn: 200
+    warn_message: "Getting long — consider splitting into submodules"
+    error: 500
+    error_message: "Too large to review easily; split this file now"
+  - pattern: "**/*.py"
+    warn: 200
+    error: 400
+  - pattern: "**/*.html"
+    warn: 200
+    error: 400
+
+exclude:
+  - "target/**"
+  - "app/binaries/**"
+  - "app/gen/**"
+  - "Cargo.lock"
+  - "**/*.md"
+  - "**/*.json"
