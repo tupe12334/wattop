@@ -1,6 +1,7 @@
 //! `wattop install-app` and `wattop uninstall-app`: fetch and install the menu-bar app that matches this CLI.
 
 use anyhow::{Context, Result, bail};
+use clap::{CommandFactory, Parser, Subcommand};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -10,12 +11,33 @@ const APP: &str = "Wattop.app";
 /// Test hook: install into this folder instead. Skips quitting the running app.
 const TEST_DIR_VAR: &str = "WATTOP_INSTALL_DIR";
 
-pub const USAGE: &str = "usage:
-  wattop                            terminal dashboard (press q to quit)
-  wattop -V, --version              print the version
-  wattop install-app [--version X] [--no-open]
-                                    install the menu-bar app for this CLI version
-  wattop uninstall-app              remove the menu-bar app";
+/// Command line. Bare `wattop` (no arguments) runs the dashboard and never reaches clap.
+#[derive(Parser, Debug)]
+#[command(
+    name = "wattop",
+    version,
+    about = "Terminal power dashboard. Run `wattop` with no arguments for the dashboard (press q to quit).",
+    disable_help_subcommand = true
+)]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Install the menu-bar app for this CLI version
+    InstallApp {
+        /// Release to install; a leading `v` is dropped
+        #[arg(long, value_name = "X", default_value = VERSION, value_parser = parse_version)]
+        version: String,
+        /// Do not open the app after installing
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// Remove the menu-bar app
+    UninstallApp,
+}
 
 #[derive(Debug, PartialEq)]
 pub struct InstallOpts {
@@ -47,35 +69,17 @@ pub fn pick_install_dir(system_writable: bool, user_writable: bool) -> Option<In
     }
 }
 
-/// Text printed by `wattop --version`.
-pub fn version_line() -> String {
-    format!("wattop {VERSION}")
-}
-
-/// Parses `[--version X] [--no-open]`. A leading `v` in X is dropped.
-pub fn parse_install<S: AsRef<str>>(args: &[S]) -> Result<InstallOpts, String> {
-    let mut version = VERSION.to_string();
-    let mut open = true;
-    let mut it = args.iter().map(AsRef::as_ref);
-    while let Some(arg) = it.next() {
-        match arg {
-            "--no-open" => open = false,
-            "--version" => {
-                let v = it.next().ok_or("--version needs a value")?;
-                let v = v.trim_start_matches('v');
-                if v.is_empty()
-                    || !v
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
-                {
-                    return Err(format!("bad version: {v}"));
-                }
-                version = v.to_string();
-            }
-            other => return Err(format!("unknown option: {other}")),
-        }
+/// Accepts `[v]X` where X is alphanumerics and `._-+`; returns X without the `v`.
+fn parse_version(v: &str) -> Result<String, String> {
+    let v = v.trim_start_matches('v');
+    if v.is_empty()
+        || !v
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
+    {
+        return Err(format!("bad version: {v}"));
     }
-    Ok(InstallOpts { version, open })
+    Ok(v.to_string())
 }
 
 /// True when the menu-bar app sits in either install folder.
@@ -83,24 +87,27 @@ pub fn app_installed() -> bool {
     system_app().exists() || user_app().is_some_and(|p| p.exists())
 }
 
-/// Runs the subcommand. Returns the process exit code.
+/// Runs the subcommand. Returns the process exit code (clap: 0 for help/version, 2 for usage errors).
 pub fn dispatch(args: &[String]) -> i32 {
-    let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    let result = match args.as_slice() {
-        ["-h" | "--help"] => {
-            println!("{USAGE}");
-            return 0;
+    let cli =
+        match Cli::try_parse_from(std::iter::once("wattop").chain(args.iter().map(String::as_str)))
+        {
+            Ok(cli) => cli,
+            Err(e) => {
+                let _ = e.print();
+                return e.exit_code();
+            }
+        };
+    let result = match cli.cmd {
+        Some(Cmd::InstallApp { version, no_open }) => install(&InstallOpts {
+            version,
+            open: !no_open,
+        }),
+        Some(Cmd::UninstallApp) => uninstall(),
+        None => {
+            let _ = Cli::command().print_help();
+            return 2;
         }
-        ["-V" | "--version"] => {
-            println!("{}", version_line());
-            return 0;
-        }
-        ["install-app", rest @ ..] => match parse_install(rest) {
-            Ok(opts) => install(&opts),
-            Err(e) => return usage_error(&e),
-        },
-        ["uninstall-app"] => uninstall(),
-        _ => return usage_error(&format!("unknown arguments: {}", args.join(" "))),
     };
     match result {
         Ok(()) => 0,
@@ -109,11 +116,6 @@ pub fn dispatch(args: &[String]) -> i32 {
             1
         }
     }
-}
-
-fn usage_error(msg: &str) -> i32 {
-    eprintln!("error: {msg}\n\n{USAGE}");
-    2
 }
 
 fn install(opts: &InstallOpts) -> Result<()> {
@@ -269,40 +271,53 @@ mod tests {
         assert_eq!(pick_install_dir(false, false), None);
     }
 
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("wattop").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn cli_definition_is_valid() {
+        Cli::command().debug_assert();
+    }
+
     #[test]
     fn parses_install_flags() {
-        let o = parse_install(&["--version", "v0.1.0", "--no-open"]).unwrap();
-        assert_eq!(
-            o,
-            InstallOpts {
-                version: "0.1.0".into(),
-                open: false
-            }
+        let c = parse(&["install-app", "--version", "v0.1.0", "--no-open"]).unwrap();
+        assert!(
+            matches!(c.cmd, Some(Cmd::InstallApp { ref version, no_open: true }) if version == "0.1.0")
         );
-        let d = parse_install::<&str>(&[]).unwrap();
-        assert_eq!(
-            d,
-            InstallOpts {
-                version: VERSION.into(),
-                open: true
-            }
+        let c = parse(&["install-app", "--version=0.1.0"]).unwrap();
+        assert!(
+            matches!(c.cmd, Some(Cmd::InstallApp { ref version, no_open: false }) if version == "0.1.0")
         );
+        let c = parse(&["install-app"]).unwrap();
+        assert!(
+            matches!(c.cmd, Some(Cmd::InstallApp { ref version, no_open: false }) if version == VERSION)
+        );
+        assert!(matches!(
+            parse(&["uninstall-app"]).unwrap().cmd,
+            Some(Cmd::UninstallApp)
+        ));
     }
 
     #[test]
-    fn version_flags_print_and_exit_zero() {
-        assert_eq!(
-            version_line(),
-            format!("wattop {}", env!("CARGO_PKG_VERSION"))
-        );
+    fn version_and_help_exit_zero() {
+        let e = parse(&["--version"]).unwrap_err();
+        assert_eq!(e.kind(), clap::error::ErrorKind::DisplayVersion);
+        assert_eq!(e.to_string().trim(), format!("wattop {VERSION}"));
         assert_eq!(dispatch(&["--version".to_string()]), 0);
         assert_eq!(dispatch(&["-V".to_string()]), 0);
+        assert_eq!(
+            dispatch(&["install-app".to_string(), "--help".to_string()]),
+            0
+        );
     }
 
     #[test]
-    fn rejects_bad_install_args() {
-        assert!(parse_install(&["--version"]).is_err());
-        assert!(parse_install(&["--version", "1.0/../x"]).is_err());
-        assert!(parse_install(&["--bogus"]).is_err());
+    fn rejects_bad_args() {
+        assert!(parse(&["install-app", "--version"]).is_err());
+        assert!(parse(&["install-app", "--version", "1.0/../x"]).is_err());
+        assert!(parse(&["install-app", "--bogus"]).is_err());
+        assert_eq!(dispatch(&["bogus".to_string()]), 2);
     }
 }
