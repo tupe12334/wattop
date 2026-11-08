@@ -4814,7 +4814,7 @@ dependencies = [
 
 [[package]]
 name = "wattop"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -4825,7 +4825,7 @@ dependencies = [
 
 [[package]]
 name = "wattop-app"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "serde",
  "serde_json",

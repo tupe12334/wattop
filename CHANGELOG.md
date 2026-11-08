@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/tupe12334/wattop/compare/wattop-v0.3.3...wattop-v0.3.4) (2026-11-08)
+
+
+### Bug Fixes
+
+* hide charger-too-weak warning while holding, build docs.rs for macOS ([276739e](https://github.com/tupe12334/wattop/commit/276739e4a081e839eb7f6bc165cb039caecd33ee))
+
 ## [0.3.3](https://github.com/tupe12334/wattop/compare/wattop-v0.3.2...wattop-v0.3.3) (2026-11-08)
 
 
