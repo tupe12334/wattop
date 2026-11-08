@@ -10,6 +10,11 @@ keywords = ["power", "battery", "macos", "tui", "dashboard"]
 categories = ["command-line-utilities", "hardware-support"]
 exclude = ["app/"]
 
+# docs.rs builds on Linux by default; IOKit links only on Apple targets.
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin"]
+
 [workspace]
 members = ["app"]
 resolver = "3"

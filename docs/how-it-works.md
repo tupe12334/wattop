@@ -64,7 +64,8 @@ The energy panel shows a bus. The charger feeds the bus. The bus feeds the syste
 - The charger line is live when the Mac is plugged in.
 - The battery line feeds the bus when the battery drains.
 - The bus feeds the battery when the battery charges.
-- Battery watts within 0.05 W count as holding.
+- The battery state comes from `Sample::motion()` in [src/telemetry.rs](../src/telemetry.rs). Battery watts within 0.05 W count as holding. A full battery on a charger also counts as holding: macOS lets it cover small load peaks, then tops it up.
+- The "Charger too weak" warning shows only when the battery drains while plugged in, not while it holds.
 
 ```mermaid
 flowchart LR

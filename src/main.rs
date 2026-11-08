@@ -258,7 +258,8 @@ fn draw_status(
         ]),
     ];
 
-    let verdict = if s.plugged_in && s.input_w < s.load_w {
+    // Holding (full battery covering small peaks) is not a weak charger.
+    let verdict = if s.plugged_in && s.motion() == battery::Motion::Draining {
         Span::styled(
             format!(
                 " Charger too weak: −{:.1} W from battery ",
