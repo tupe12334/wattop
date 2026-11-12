@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/tupe12334/wattop/compare/wattop-v0.3.4...wattop-v0.4.0) (2026-11-12)
+
+
+### Features
+
+* show USB-C port power out, e.g. a charging phone ([eb22146](https://github.com/tupe12334/wattop/commit/eb22146f410c914ab80b5ec3be87e368a3816b15))
+
 ## [0.3.4](https://github.com/tupe12334/wattop/compare/wattop-v0.3.3...wattop-v0.3.4) (2026-11-08)
 
 
