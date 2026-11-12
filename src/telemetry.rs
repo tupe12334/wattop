@@ -83,10 +83,16 @@ pub fn read() -> Result<Sample> {
     let mut s = parse(&out.stdout)?;
     // Port lookup is best effort: a failure only hides the port name.
     s.power_ports = read_ports().unwrap_or_default();
-    // A port that powers a device is not a charger port.
-    s.power_ports
-        .retain(|p| !s.port_out.iter().any(|o| &o.name == p));
+    drop_power_out(&mut s.power_ports, &out.stdout)?;
     Ok(s)
+}
+
+/// Removes ports listed in `PowerOutDetails`, even at 0 W: such a port is not a charger port.
+fn drop_power_out(ports: &mut Vec<String>, bytes: &[u8]) -> Result<()> {
+    let dict = battery_dict(bytes)?;
+    let out = power_out_all(&dict);
+    ports.retain(|p| !out.iter().any(|o| &o.name == p));
+    Ok(())
 }
 
 /// Reads Low Power Mode from `pmset -g`. None when pmset fails or prints no such line.
@@ -107,13 +113,18 @@ pub fn parse_low_power(text: &str) -> Option<bool> {
     )
 }
 
-pub fn parse(bytes: &[u8]) -> Result<Sample> {
+/// The AppleSmartBattery dictionary from an `ioreg -a` plist.
+fn battery_dict(bytes: &[u8]) -> Result<Dictionary> {
     let root = Value::from_reader(std::io::Cursor::new(bytes)).context("parse ioreg plist")?;
-    let dict = root
-        .as_array()
+    root.as_array()
         .and_then(|a| a.first())
         .and_then(Value::as_dictionary)
-        .ok_or_else(|| anyhow!("no AppleSmartBattery entry (desktop Mac?)"))?;
+        .cloned()
+        .ok_or_else(|| anyhow!("no AppleSmartBattery entry (desktop Mac?)"))
+}
+
+pub fn parse(bytes: &[u8]) -> Result<Sample> {
+    let dict = &battery_dict(bytes)?;
 
     let telem = dict
         .get("PowerTelemetryData")
@@ -150,6 +161,14 @@ pub fn parse(bytes: &[u8]) -> Result<Sample> {
 /// Reads `PowerOutDetails`: one entry per port that powers a device.
 // ponytail: an idle device (0 W) is hidden. Show it when a "connected" flag is found.
 fn port_out(dict: &Dictionary) -> Vec<PortOut> {
+    power_out_all(dict)
+        .into_iter()
+        .filter(|o| o.watts > 0.0)
+        .collect()
+}
+
+/// Every `PowerOutDetails` entry, 0 W included.
+fn power_out_all(dict: &Dictionary) -> Vec<PortOut> {
     dict.get("PowerOutDetails")
         .and_then(Value::as_array)
         .into_iter()
@@ -159,7 +178,6 @@ fn port_out(dict: &Dictionary) -> Vec<PortOut> {
             name: format!("USB-C port {}", int(d, "PortIndex")),
             watts: int(d, "Watts") as f64 / 1000.0,
         })
-        .filter(|o| o.watts > 0.0)
         .collect()
 }
 
@@ -351,6 +369,20 @@ mod tests {
         assert_eq!(parse_low_power(PMSET_LPM_ON), Some(true));
         assert_eq!(parse_low_power(PMSET_LPM_OFF), Some(false));
         assert_eq!(parse_low_power(PMSET_NO_LPM), None);
+    }
+
+    #[test]
+    fn zero_watt_power_out_port_is_not_a_charger_port() {
+        // Port 2 is attached and listed as powering a device, but draws 0 W right now.
+        const IDLE_OUT: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><array><dict>
+  <key>PowerOutDetails</key><array>
+    <dict><key>PortIndex</key><integer>2</integer><key>Watts</key><integer>0</integer></dict>
+  </array>
+</dict></array></plist>"#;
+        let mut ports = vec!["USB-C port 2".to_string(), "USB-C port 4".to_string()];
+        drop_power_out(&mut ports, IDLE_OUT.as_bytes()).unwrap();
+        assert_eq!(ports, vec!["USB-C port 4".to_string()]);
     }
 
     #[test]
