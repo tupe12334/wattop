@@ -15,9 +15,9 @@ pub enum CellKind {
     DrainPulse,
 }
 
-/// Segments for a panel inner width. Leaves one column for the nub. Max 10.
+/// Segments for a panel inner width. Max 10.
 pub fn segment_count(inner_width: usize) -> usize {
-    inner_width.saturating_sub(1).clamp(1, 10)
+    inner_width.clamp(1, 10)
 }
 
 /// Filled segments for a percent. Rounds up, so 1% still shows one segment.
@@ -26,7 +26,7 @@ pub fn filled_cells(width: usize, percent: i64) -> usize {
 }
 
 /// Segment kinds for one frame. The pulse moves one segment per frame and loops.
-/// Charging: starts at the fill edge and sweeps right, toward the nub.
+/// Charging: starts at the fill edge and sweeps right, toward the end.
 /// Draining: starts at the fill edge and sweeps left, toward the start.
 pub fn battery_cells(width: usize, percent: i64, motion: Motion, frame: u64) -> Vec<CellKind> {
     let filled = filled_cells(width, percent);
@@ -116,10 +116,9 @@ mod tests {
     }
 
     #[test]
-    fn segments_fit_inner_width_with_nub() {
-        // Drawn row = segments + nub column.
+    fn segments_fit_inner_width() {
         for inner in [8, 12, 24, 40] {
-            let drawn = segment_count(inner) + 1;
+            let drawn = segment_count(inner);
             assert!(drawn <= inner, "row {drawn} wider than inner {inner}");
         }
         assert_eq!(segment_count(40), 10);

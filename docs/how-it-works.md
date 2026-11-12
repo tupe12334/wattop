@@ -11,6 +11,7 @@ Install steps are in [Install](install.md).
 | SMC, keys `PDTR` and `PSTR` | IOKit `AppleSMC` service | Live input watts and system watts, once per second | [src/smc.rs](../src/smc.rs) |
 | Battery entry | `ioreg -rn AppleSmartBattery -a` | Charge, charging state, adapter details, battery watts, temperature, time left | [src/telemetry.rs](../src/telemetry.rs) |
 | Ports | `ioreg -r -k PortDescription -d1 -a` | Active power ports, such as `USB-C port 2` | [src/telemetry.rs](../src/telemetry.rs) |
+| Port out | `ioreg -rn AppleSmartBattery -a`, key `PowerOutDetails` | Ports that power a device, such as a phone, with watts (V × I) | [src/telemetry.rs](../src/telemetry.rs) |
 | Low Power Mode | `pmset -g` | On or off, from the `lowpowermode` line | [src/telemetry.rs](../src/telemetry.rs) |
 | Model | `sysctl -n hw.model` | Model id, used to pick a port layout | [src/silhouette.rs](../src/silhouette.rs) |
 
@@ -85,4 +86,5 @@ flowchart LR
 - Apple laptops only. A desktop Mac has no `AppleSmartBattery` entry, so the parser returns an error.
 - The port outline is drawn only for layouts in the table in [src/silhouette.rs](../src/silhouette.rs). Today that is `Mac16,1` only. Other models get a plain list of port names.
 - Port names come only from `USB-C` and `MagSafe` ports. Other ports are ignored. See `pretty_port` in [src/telemetry.rs](../src/telemetry.rs).
+- A device that draws 0 W is not shown as port out.
 - The menu-bar app builds for Apple Silicon only. Release files are named `aarch64`. See [.github/workflows/release.yml](../.github/workflows/release.yml).

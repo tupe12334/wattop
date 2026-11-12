@@ -136,9 +136,15 @@ pub fn draw(f: &mut Frame, area: Rect, s: &Sample, frame: u64) {
     ];
     node(f, inner, b.battery, batt_color, "▮ BATTERY", batt_lines);
 
-    let system_lines = vec![Line::from(
+    let mut system_lines = vec![Line::from(
         format!("load {:.1} W", s.load_w).yellow().bold(),
     )];
+    // Ports that power a device, e.g. "port 2 11.5 W". That is 13 cols, which fits the
+    // 13-col SYSTEM inner width up to 99.9 W. Two fit under the load line.
+    system_lines.extend(s.port_out.iter().take(2).map(|o| {
+        let n = o.name.trim_start_matches("USB-C ");
+        Line::from(format!("{n} {:.1} W", o.watts).fg(ORANGE))
+    }));
     node(f, inner, b.system, Color::Cyan, "◆ SYSTEM", system_lines);
 }
 
@@ -367,6 +373,11 @@ pub fn put_str(buf: &mut Buffer, inner: Rect, x: i32, y: i32, text: &str, style:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn port_out_label_fits_system_box() {
+        assert!(format!("port {} {:.1} W", 4, 99.9).chars().count() <= (BOX_W - 2) as usize);
+    }
 
     #[test]
     fn flows_follow_power_direction() {

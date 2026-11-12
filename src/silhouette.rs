@@ -112,12 +112,17 @@ pub fn draw(f: &mut Frame, area: Rect, s: &Sample, ports: Option<&'static [PortP
 
 /// Fallback when the model is unknown or the panel is too small.
 fn list(f: &mut Frame, inner: Rect, s: &Sample) {
-    let lines: Vec<Line> = if s.power_ports.is_empty() {
+    let lines: Vec<Line> = if s.power_ports.is_empty() && s.port_out.is_empty() {
         vec![Line::from("no power port".dark_gray())]
     } else {
         s.power_ports
             .iter()
             .map(|p| Line::from(p.clone()).light_green().bold())
+            .chain(s.port_out.iter().map(|o| {
+                Line::from(format!("{} ▸ {:.1} W", o.name, o.watts))
+                    .fg(flow::ORANGE)
+                    .bold()
+            }))
             .collect()
     };
     f.render_widget(Paragraph::new(lines), inner);
@@ -149,8 +154,11 @@ fn outline(f: &mut Frame, inner: Rect, s: &Sample, ports: &[PortPos]) {
     for p in ports {
         let y = row(p);
         let on = s.power_ports.iter().any(|n| n == p.name);
+        let out = s.port_out.iter().any(|o| o.name == p.name);
         let style = if on {
             Style::new().fg(Color::LightGreen).bold()
+        } else if out {
+            Style::new().fg(flow::ORANGE).bold()
         } else {
             dim
         };
@@ -160,21 +168,23 @@ fn outline(f: &mut Frame, inner: Rect, s: &Sample, ports: &[PortPos]) {
         if !labels {
             continue;
         }
-        let text_style = if on { style } else { dim };
+        let text_style = if on || out { style } else { dim };
         match p.side {
             Side::Left => {
-                if on {
+                if on || out {
+                    let (tip, sym) = if on { (bx - 1, "▶") } else { (bx - 4, "◀") };
                     for x in (bx - 4)..bx {
-                        flow::put(buf, inner, x, y, if x == bx - 1 { "▶" } else { "═" }, style);
+                        flow::put(buf, inner, x, y, if x == tip { sym } else { "═" }, style);
                     }
                 }
                 let start = bx - 5 - p.short.chars().count() as i32;
                 flow::put_str(buf, inner, start, y, p.short, text_style);
             }
             Side::Right => {
-                if on {
+                if on || out {
+                    let (tip, sym) = if on { (rb + 1, "◀") } else { (rb + 4, "▶") };
                     for x in (rb + 1)..(rb + 5) {
-                        flow::put(buf, inner, x, y, if x == rb + 1 { "◀" } else { "═" }, style);
+                        flow::put(buf, inner, x, y, if x == tip { sym } else { "═" }, style);
                     }
                 }
                 flow::put_str(buf, inner, rb + 5, y, p.short, text_style);
@@ -186,6 +196,28 @@ fn outline(f: &mut Frame, inner: Rect, s: &Sample, ports: &[PortPos]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+    use wattop::telemetry::PortOut;
+
+    #[test]
+    fn powering_port_draws_orange_arrow_away_from_body() {
+        let s = Sample {
+            port_out: vec![PortOut {
+                name: "USB-C port 2".into(),
+                watts: 11.5,
+            }],
+            ..Default::default()
+        };
+        let ports = layout("Mac16,1").unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(40, 9)).unwrap();
+        terminal.draw(|f| outline(f, f.area(), &s, ports)).unwrap();
+        let buf = terminal.backend().buffer();
+        assert!(
+            buf.content()
+                .iter()
+                .any(|c| c.symbol() == "◀" && c.fg == flow::ORANGE)
+        );
+    }
 
     #[test]
     fn usb_c_2_is_left_slot_2_of_4_on_mac16_1() {

@@ -35,6 +35,16 @@ pub struct Sample {
     pub power_ports: Vec<String>,
     /// macOS Low Power Mode on the current power source, None when unknown.
     pub low_power: Option<bool>,
+    /// Ports that power a device, such as a phone, with the watts they deliver.
+    pub port_out: Vec<PortOut>,
+}
+
+/// One port that delivers power to a device.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortOut {
+    /// Port name as `power_ports` spells it, e.g. "USB-C port 1".
+    pub name: String,
+    pub watts: f64,
 }
 
 /// Battery watts within this band count as holding.
@@ -73,6 +83,9 @@ pub fn read() -> Result<Sample> {
     let mut s = parse(&out.stdout)?;
     // Port lookup is best effort: a failure only hides the port name.
     s.power_ports = read_ports().unwrap_or_default();
+    // A port that powers a device is not a charger port.
+    s.power_ports
+        .retain(|p| !s.port_out.iter().any(|o| &o.name == p));
     Ok(s)
 }
 
@@ -130,7 +143,24 @@ pub fn parse(bytes: &[u8]) -> Result<Sample> {
             .map_or(0, Vec::len),
         power_ports: Vec::new(),
         low_power: None,
+        port_out: port_out(dict),
     })
+}
+
+/// Reads `PowerOutDetails`: one entry per port that powers a device.
+// ponytail: an idle device (0 W) is hidden. Show it when a "connected" flag is found.
+fn port_out(dict: &Dictionary) -> Vec<PortOut> {
+    dict.get("PowerOutDetails")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_dictionary)
+        .map(|d| PortOut {
+            name: format!("USB-C port {}", int(d, "PortIndex")),
+            watts: int(d, "Watts") as f64 / 1000.0,
+        })
+        .filter(|o| o.watts > 0.0)
+        .collect()
 }
 
 /// Replaces ioreg watts with live SMC values, all or nothing.
@@ -230,6 +260,10 @@ mod tests {
     <key>Current</key><integer>2220</integer>
   </dict>
   <key>AppleRawAdapterDetails</key><array><dict/><dict/></array>
+  <key>PowerOutDetails</key><array>
+    <dict><key>PortIndex</key><integer>1</integer><key>Watts</key><integer>1911</integer></dict>
+    <dict><key>PortIndex</key><integer>3</integer><key>Watts</key><integer>0</integer></dict>
+  </array>
   <key>PowerTelemetryData</key><dict>
     <key>BatteryPower</key><integer>-663</integer>
     <key>SystemLoad</key><integer>7632</integer>
@@ -260,6 +294,13 @@ mod tests {
         assert!((s.charger_volts - 9.0).abs() < 1e-9);
         assert!((s.charger_amps - 2.22).abs() < 1e-9);
         assert_eq!(s.power_sources, 2);
+        assert_eq!(
+            s.port_out,
+            vec![PortOut {
+                name: "USB-C port 1".into(),
+                watts: 1.911
+            }]
+        );
     }
 
     #[test]

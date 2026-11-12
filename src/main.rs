@@ -98,7 +98,7 @@ fn panel(title: &str) -> Block<'_> {
 /// else two text lines. Then the chart keeps at least 8 rows. Procs (0 rows) hide when there is no room.
 fn heights(total: u16) -> [u16; 4] {
     const COMPACT_FLOW: u16 = 4; // two text lines, borders included
-    const STATUS: u16 = 10;
+    const STATUS: u16 = 11;
     const CHART_MIN: u16 = 8;
     const PROCS_MIN: u16 = 5;
     let room = total.saturating_sub(STATUS + CHART_MIN);
@@ -180,16 +180,14 @@ fn draw_status(
         battery::Motion::Charging => ("CHARGING", Color::Green),
         battery::Motion::Draining => ("DISCHARGING", Color::Red),
     };
-    // Segment row: segments + 1 nub column, sized to the panel's inner width.
+    // Segment row, sized to the panel's inner width.
     let block = panel("battery");
     let inner = block.inner(cell);
     let segments = battery::segment_count(inner.width as usize);
-    let nub = Span::styled("▌", Style::new().fg(Color::DarkGray));
-    let mut row: Vec<Span> = battery::battery_cells(segments, percent, motion, frame)
+    let row: Vec<Span> = battery::battery_cells(segments, percent, motion, frame)
         .into_iter()
         .map(|k| segment_span(k, color))
         .collect();
-    row.push(nub);
     let cell_lines = vec![
         Line::from(row),
         Line::from(Span::styled(
@@ -241,11 +239,21 @@ fn draw_status(
         Some(false) => Span::styled("Off", Style::new().fg(Color::DarkGray)),
         None => Span::styled("—", Style::new().fg(Color::DarkGray)),
     };
+    let port_out = if s.port_out.is_empty() {
+        "—".to_string()
+    } else {
+        s.port_out
+            .iter()
+            .map(|o| format!("{} · {:.1} W", o.name, o.watts))
+            .collect::<Vec<_>>()
+            .join(" + ")
+    };
     let lines = vec![
         kv("Input", format!("{:.1} W", s.input_w), Color::Green),
         kv("Load", format!("{:.1} W", s.load_w), Color::Yellow),
         kv("Battery net", flow::signed_w(s.battery_w), net_color),
         kv("Source", source, Color::White),
+        kv("Port out", port_out, flow::ORANGE),
         kv("Charger rating", rating, Color::White),
         kv("Temperature", format!("{:.1} °C", s.temp_c), Color::White),
         kv("ETA", eta, Color::White),
@@ -437,8 +445,8 @@ mod tests {
 
     #[test]
     fn flow_takes_bus_rows_when_room_else_two_lines() {
-        assert_eq!(heights(30), [12, 10, 8, 0]);
-        assert_eq!(heights(29)[0], 4);
+        assert_eq!(heights(31), [12, 11, 8, 0]);
+        assert_eq!(heights(30)[0], 4);
         assert_eq!(heights(28)[0], 4);
         assert!(heights(24)[2] >= 8);
         assert_eq!(heights(60)[0], 12);
