@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/tupe12334/wattop/compare/wattop-v0.4.0...wattop-v0.4.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* keep 0 W power-out ports out of the charger ports ([7d5d909](https://github.com/tupe12334/wattop/commit/7d5d909518bd17c7b942facb1c1ca9f164d453ea))
+
 ## [0.4.0](https://github.com/tupe12334/wattop/compare/wattop-v0.3.4...wattop-v0.4.0) (2026-11-12)
 
 
