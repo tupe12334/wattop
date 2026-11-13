@@ -49,6 +49,10 @@ See [docs/menu-bar-app.md](docs/menu-bar-app.md). To build it from source, see [
 - [Releasing](docs/releasing.md)
 - [Contributing](CONTRIBUTING.md)
 
+## See also
+
+- [moadim](https://moadim.io/): loop engineering. Build, schedule and run agent loops.
+
 ## License
 
 MIT
