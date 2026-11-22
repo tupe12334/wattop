@@ -4,6 +4,10 @@ A terminal power dashboard for macOS laptops, styled like a hybrid car's energy 
 
 It shows where your watts go: from the charger, into the system and in or out of the battery. It updates live.
 
+https://github.com/user-attachments/assets/0018b7c2-0a43-4c86-a68d-0b52e93f5c55
+
+![The wattop dashboard: energy flow, ports, battery, power readouts, history graph and top power users](docs/media/dashboard.png)
+
 - **Energy flow:** animated flow between CHARGER, SYSTEM and BATTERY.
 - **Battery cell:** the charge level and the state: CHARGING, HOLDING or DISCHARGING.
 - **Readouts:** input, load, net battery watts, charger rating, temperature and time left.
@@ -38,6 +42,8 @@ See [docs/how-it-works.md](docs/how-it-works.md).
 ## Menu bar app
 
 Wattop also runs as a menu-bar app. It shows the stats you pick in the menu bar. It has no window.
+
+![The Wattop menu-bar title showing battery net watts](docs/media/menu-bar.png)
 
 See [docs/menu-bar-app.md](docs/menu-bar-app.md). To build it from source, see [Install: build from source](docs/install.md#path-4-build-from-source).
 
