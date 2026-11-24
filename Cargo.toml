@@ -21,6 +21,7 @@ resolver = "3"
 
 [dependencies]
 anyhow = "1.0.104"
+clap = { version = "4.6", features = ["derive"] }
 crossterm = "0.29.0"
 plist = "1.10.3"
 ratatui = "0.30.2"
