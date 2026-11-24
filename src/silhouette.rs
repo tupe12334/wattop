@@ -61,10 +61,37 @@ const MAC16_1: &[PortPos] = &[
     },
 ];
 
+/// MacBook Air 13-inch (M4). All power ports are on the left. The right side has only the audio jack.
+/// The three ports sit together at the back, so the fourth (front) slot stays empty.
+const MAC16_12: &[PortPos] = &[
+    PortPos {
+        name: "MagSafe",
+        short: "MagSafe",
+        side: Side::Left,
+        slot: 1,
+        slots: 4,
+    },
+    PortPos {
+        name: "USB-C port 2",
+        short: "USB-C 2",
+        side: Side::Left,
+        slot: 2,
+        slots: 4,
+    },
+    PortPos {
+        name: "USB-C port 1",
+        short: "USB-C 1",
+        side: Side::Left,
+        slot: 3,
+        slots: 4,
+    },
+];
+
 /// Port table for a `hw.model` id. None when the layout is not verified.
 pub fn layout(model: &str) -> Option<&'static [PortPos]> {
     match model {
         "Mac16,1" => Some(MAC16_1),
+        "Mac16,12" => Some(MAC16_12),
         _ => None,
     }
 }
@@ -236,6 +263,37 @@ mod tests {
                 .all(|p| p.name == "MagSafe" || p.name.starts_with("USB-C")),
             "non-power port in layout: {ports:?}"
         );
+    }
+
+    #[test]
+    fn usb_c_1_is_left_slot_3_of_4_on_mac16_12() {
+        let ports = layout("Mac16,12").unwrap();
+        assert_eq!(ports.len(), 3);
+        assert!(ports.iter().all(|p| p.side == Side::Left));
+        let p = ports.iter().find(|p| p.name == "USB-C port 1").unwrap();
+        assert_eq!((p.side, p.slot, p.slots), (Side::Left, 3, 4));
+        // The three ports sit on adjacent rows at the back.
+        assert_eq!(ports.iter().map(row).collect::<Vec<_>>(), [1, 2, 3]);
+    }
+
+    #[test]
+    fn charging_port_draws_green_arrow_into_body_on_mac16_12() {
+        let s = Sample {
+            plugged_in: true,
+            power_ports: vec!["USB-C port 1".into()],
+            ..Default::default()
+        };
+        let ports = layout("Mac16,12").unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(40, 9)).unwrap();
+        terminal.draw(|f| outline(f, f.area(), &s, ports)).unwrap();
+        let buf = terminal.backend().buffer();
+        // Slot 3 of 4 sits on body row 3.
+        let arrow = buf
+            .content()
+            .iter()
+            .position(|c| c.symbol() == "▶" && c.fg == Color::LightGreen)
+            .expect("green arrow");
+        assert_eq!(arrow / 40, 3);
     }
 
     #[test]

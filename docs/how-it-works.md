@@ -84,7 +84,7 @@ flowchart LR
 ## Limits
 
 - Apple laptops only. A desktop Mac has no `AppleSmartBattery` entry, so the parser returns an error.
-- The port outline is drawn only for layouts in the table in [src/silhouette.rs](../src/silhouette.rs). Today that is `Mac16,1` only. Other models get a plain list of port names.
+- The port outline is drawn only for layouts in the table in [src/silhouette.rs](../src/silhouette.rs). Today that is `Mac16,1` (MacBook Pro 14-inch, M4) and `Mac16,12` (MacBook Air 13-inch, M4). Other models get a plain list of port names.
 - Port names come only from `USB-C` and `MagSafe` ports. Other ports are ignored. See `pretty_port` in [src/telemetry.rs](../src/telemetry.rs).
 - A device that draws 0 W is not shown as port out.
 - The menu-bar app builds for Apple Silicon only. Release files are named `aarch64`. See [.github/workflows/release.yml](../.github/workflows/release.yml).

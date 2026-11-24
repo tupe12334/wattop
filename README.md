@@ -31,7 +31,7 @@ Run `wattop`. Press `q` or `Esc` to quit.
 
 ## Limits
 
-The port outline draws only for Mac16,1. The menu-bar app builds for Apple Silicon only.
+The port outline draws only for Mac16,1 and Mac16,12. The menu-bar app builds for Apple Silicon only.
 
 ## How it works
 
