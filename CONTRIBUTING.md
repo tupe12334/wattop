@@ -14,6 +14,7 @@ You need:
 
 - Rust stable. Install with [rustup](https://rustup.rs).
 - macOS on Apple Silicon. The live readings need an Apple laptop.
+- The Xcode command line tools, for the menu-bar app and the desktop widget. Both compile Swift with `swiftc`. The app's build script runs it too, so `cargo clippy --workspace` and `cargo test --workspace` need the tools as well.
 - `tauri-cli` version 2, only for the menu-bar app. See [Install: build from source](docs/install.md#path-4-build-from-source).
 
 ## Run the terminal dashboard
@@ -40,6 +41,8 @@ cargo publish --dry-run -p wattop
 ## Build the menu-bar app
 
 The app needs the CLI as a sidecar first. The full build steps are in [Install: build from source](docs/install.md#path-4-build-from-source). The sidecar is set in `externalBin` in [app/tauri.conf.json](app/tauri.conf.json). The release workflow builds it the same way.
+
+The app also bundles the desktop widget. Build it with `./widget/build.sh` before `cargo tauri build`, which copies `widget/build/WattopWidget.appex` into the app. `cargo tauri dev` does not bundle the app, so it runs without the widget. See [Desktop widget](docs/widget.md#build).
 
 Run the app build from `app/`:
 

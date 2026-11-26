@@ -47,11 +47,28 @@ Wattop also runs as a menu-bar app. It shows the stats you pick in the menu bar.
 
 See [docs/menu-bar-app.md](docs/menu-bar-app.md). To build it from source, see [Install: build from source](docs/install.md#path-4-build-from-source).
 
+## Desktop widget
+
+The app also adds a desktop widget named **Power Flow**. It draws the energy flow between the charger, the battery and the system as a loop, like the energy monitor of a hybrid car. It needs macOS 14 or later.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/widget-dark.png">
+  <img alt="The Power Flow widget: charging in the medium size, then on battery and powering a device in the small size" src="docs/media/widget-light.png">
+</picture>
+
+- **Flow:** a lit leg shows where power moves, green from a charger and orange from the battery. Its width follows the watts, and pulses run the way the power moves.
+- **Net gain or loss:** the background turns green while the battery gains and orange while it loses.
+- **Sizes:** small and medium. macOS draws the glass, dimmed, clear and tinted styles.
+- **Battery friendly:** it reloads only while a widget is on screen.
+
+See [docs/widget.md](docs/widget.md).
+
 ## Docs
 
 - [Install](docs/install.md)
 - [How it works](docs/how-it-works.md)
 - [Menu-bar app](docs/menu-bar-app.md)
+- [Desktop widget](docs/widget.md)
 - [Releasing](docs/releasing.md)
 - [Contributing](CONTRIBUTING.md)
 

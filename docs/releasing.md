@@ -57,6 +57,8 @@ When all six secrets below exist, the app job:
 
 Without the secrets, the job builds an ad-hoc signed app and does not notarize it. Forks and pull requests never get the secrets. The job fails if only some secrets exist.
 
+The job builds the desktop widget with `./widget/build.sh` before the app build. Tauri copies the widget into the app and does not sign it, so the script signs it. With the secrets, the job first imports the certificate into a second temporary keychain, and the script signs the widget with the Developer ID identity and hardened runtime. Without the secrets, the script signs the widget ad-hoc. A step after the app build checks that the widget kept its App Sandbox entitlement. See [Desktop widget: build](widget.md#build).
+
 The app needs no entitlements file. It starts `ioreg`, `pmset`, `sysctl`, `curl` and `osascript` as child processes. Each child keeps its own signature, so hardened runtime does not block them.
 
 The secrets live in the GitHub environment `release`. The `app-bundle` job uses that environment. Create the environment first, in Settings, Environments, if it does not exist. If it has required reviewers, the app job waits for approval.

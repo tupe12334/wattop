@@ -29,6 +29,9 @@ jobs:
           cargo build --release -p wattop
           mkdir -p app/binaries
           cp target/release/wattop app/binaries/wattop-aarch64-apple-darwin
+      # The Rust checks do not compile the widget. Build it here so a Swift error fails CI.
+      - name: Build the desktop widget
+        run: ./widget/build.sh
       - name: Clippy
         run: cargo clippy --workspace --release -- -D warnings
       - name: Test

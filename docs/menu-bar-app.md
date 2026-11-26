@@ -53,6 +53,10 @@ The item looks for a `wattop` binary next to the app executable.
 
 See `open_dashboard()` in [app/src/main.rs](../app/src/main.rs).
 
+## Desktop widget
+
+The app bundles the **Power Flow** desktop widget. The app also tells macOS when to reload it. See [Desktop widget](widget.md#when-the-widget-reloads).
+
 ## Quit
 
 The **Quit Wattop** item calls `app.exit(0)`. The app keeps running when no window exists. It uses the accessory activation policy, so it has no Dock icon.

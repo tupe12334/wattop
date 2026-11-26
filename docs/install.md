@@ -123,13 +123,19 @@ Use this path to build both parts from a clone.
    cp target/release/wattop app/binaries/wattop-aarch64-apple-darwin
    ```
 
-3. Install `tauri-cli` version 2, if you do not have it:
+3. Build the desktop widget. The app bundles this folder too. See [Desktop widget](widget.md#build):
+
+   ```sh
+   ./widget/build.sh
+   ```
+
+4. Install `tauri-cli` version 2, if you do not have it:
 
    ```sh
    cargo install tauri-cli --version "^2" --locked
    ```
 
-4. Build the app:
+5. Build the app:
 
    ```sh
    cd app
@@ -137,13 +143,13 @@ Use this path to build both parts from a clone.
    cd ..
    ```
 
-5. Copy the app to `/Applications`:
+6. Copy the app to `/Applications`:
 
    ```sh
    cp -R target/release/bundle/macos/Wattop.app /Applications/
    ```
 
-6. Put the CLI on your path. Choose one:
+7. Put the CLI on your path. Choose one:
 
    ```sh
    cargo install --path .
@@ -151,7 +157,7 @@ Use this path to build both parts from a clone.
 
    Or link the bundled CLI with the menu item **Install command-line tool**.
 
-You should see `target/release/bundle/macos/Wattop.app` after step 4.
+You should see `target/release/bundle/macos/Wattop.app` after step 5.
 
 The app is not notarized. Use [First launch](#first-launch) before you open it.
 

@@ -25,7 +25,10 @@
     ],
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "files": {
+        "PlugIns/WattopWidget.appex": "../widget/build/WattopWidget.appex"
+      }
     }
   }
 }

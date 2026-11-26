@@ -19,6 +19,7 @@ use wattop::{
 };
 
 mod cli_link;
+mod widget;
 
 const TRAY_ID: &str = "wattop";
 const NO_DATA_TITLE: &str = "⚡ n/a";
@@ -348,14 +349,20 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     // Same sampling as the TUI: the SMC is opened once and read every tick.
     let smc = smc::Smc::open().ok();
     std::thread::spawn(move || {
+        let mut widget = widget::Reloader::default();
         loop {
             let r = wattop::sample(smc.as_ref()).map_err(|e| format!("{e:#}"));
+            let port = r
+                .as_ref()
+                .ok()
+                .map(|s| (s.plugged_in, !s.port_out.is_empty()));
             handle
                 .state::<Mutex<Shared>>()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .last = r;
             refresh(&handle);
+            widget.tick(port);
             std::thread::sleep(Duration::from_secs(1));
         }
     });
