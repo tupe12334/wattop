@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/tupe12334/wattop/compare/wattop-v0.4.1...wattop-v0.5.0) (2026-11-26)
+
+
+### Features
+
+* add the Power Flow desktop widget ([#18](https://github.com/tupe12334/wattop/issues/18)) ([5f3395c](https://github.com/tupe12334/wattop/commit/5f3395c0c2a6bd1dc8f7bcdc747a6236aaba84eb))
+* draw the ports panel as an open laptop ([#17](https://github.com/tupe12334/wattop/issues/17)) ([a6c0e94](https://github.com/tupe12334/wattop/commit/a6c0e943997714f1cdbc457fbc3cf00032a911f8))
+
+
+### Documentation
+
+* add dashboard video and screenshots to the README ([#14](https://github.com/tupe12334/wattop/issues/14)) ([485e98e](https://github.com/tupe12334/wattop/commit/485e98e2ffdeb547e39c835264c6e23c97d868ec))
+
 ## [0.4.1](https://github.com/tupe12334/wattop/compare/wattop-v0.4.0...wattop-v0.4.1) (2026-11-12)
 
 
